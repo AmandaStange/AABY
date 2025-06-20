@@ -1,0 +1,10 @@
+[ moleculetype ]
+; Name            nrexcl
+Cl-          3
+
+[ atoms ]
+;   nr       type  resnr residue  atom   cgnr    charge       mass  typeB    chargeB      massB
+; residue    1 Cl- rtp Cl- q -1.0
+    1        Cl-      1    Cl-    Cl-      1 -1.00000000  35.450000   ; qtot -1.000000
+
+
