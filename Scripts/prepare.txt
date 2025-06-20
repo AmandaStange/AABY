@@ -1,0 +1,123 @@
+needs TER
+
+
+PDB file:
+
+- Add caps 
+
+python Scripts/add_ace_nme.py 7SL6_prot.pdb A,B,C,D
+
+
+- Renumber
+
+gmx editconf -f 7SL6_prot_ACE_NME.pdb -resnr 1 -o 7SL6_prot_ACE_NME_re.pdb
+
+- Fix SSBOND
+
+Since the PDB file has been renumbered the SSBOND section has to be as well
+
+python Scripts/re_ss.py 7SL6_prot_ACE_NME.pdb
+
+- Delete H
+
+they annoy tleap
+
+echo 2 | gmx trjconv -f 7SL6_prot_ACE_NME_re_ssbond.pdb -s 7SL6_prot_ACE_NME_re_ssbond.pdb -o 7SL6_prot_ACE_NME_re_heavy.pdb
+
+- Change residue names:
+
+- pH and protonation?
+
+python Scripts/pka.py 7SL6_prot_ACE_NME_re_heavy.pdb 7.4
+
+OUTPUT: 7SL6_prot_ACE_NME_re_heavy.pka
+
+Table 1. AMBER Resnames of Common Non-standard Protonation States
+Non-standard Protonation Form	AMBER Resname
+Protonated/uncharged Asp	ASH
+Protonated/uncharged Glu	GLH
+Deprotonated/uncharged Lys	LYN
+His protonated at epsilon position	HIE
+His protonated at delta position	HID
+Charged His (protonated at both positions)	HIP
+Deprotonated Cys or Cys bound to a metal	CYM
+Cys involved in disulfide bridge	CYX
+
+
+python Scripts/change_prot.py 7SL6_prot_ACE_NME_re_heavy.pka --ph 7.4
+cp 7SL6_prot_ACE_NME_re_heavy.pdb 7SL6_prot_ACE_NME_re_heavy_renamed.pdb
+
+rename "CD  ILE" to "CD1 ILE" (:%s/CD  ILE/CD1 ILE/g)
+rename HIS to HIE (:%s/HIS/HIE/g)
+rename CYS to CYX if in SSBOND
+
+bash mutate_residues.sh 7SL6_prot_ACE_NME_re_heavy_renamed.pdb
+sed -i 's/CD  ILE/CD1 ILE/g' 7SL6_prot_ACE_NME_re_heavy_renamed.pdb
+sed -i 's/HIS/HIE/g' 7SL6_prot_ACE_NME_re_heavy_renamed.pdb
+
+- Add TER from pdb
+
+python Scripts/add_ter.py  7SL6_prot_ACE_NME_re_heavy_renamed.pdb 7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb
+
+- Add membrane 
+
+COBY_input='''
+#include "toppar/forcefield.itp"
+#include "toppar/CHL.itp"
+#include "toppar/POPC.itp"
+#include "toppar/OPC.itp"
+#include "toppar/Na+.itp"
+#include "toppar/Cl-.itp"
+'''
+
+
+python3 -m COBY \
+-box 16 16 25 \
+-membrane lipid:POPC:6:params:Amber lipid:CHL:4:params:Amber center:0:0:-7 \
+-protein file:7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb charge:-31 cen_method:875-915:1790-1829 cz:4 \
+-solvation solv:OPC:params:Amber pos:Na+:params:AA neg:Cl-:params:AA bead_radius:0.12 kick:0.03 buffer:0.1 protein_extra_buffer:0.0 \_
+-itp_input file:COBY_input.top \
+-optimize run:True \
+-molecule_import file:toppar/POPC.pdb moleculetype:POPC params:Amber \
+-molecule_import file:toppar/OPC.pdb moleculetype:OPC params:Amber \
+-molecule_import file:toppar/CHL.pdb moleculetype:CHL params:Amber \
+-out_sys COBY.pdb \
+-out_top COBY.top 
+
+
+- Add TER from pdb
+
+sed -i '/END/d' 7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb
+i=$(wc -l 7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb | awk '{print $1}')
+j=$(grep TER 7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb | wc -l)
+
+diff=$(( i - j + 4))
+
+sed "5,${diff}d" COBY.pdb | awk 'NR==5{while((getline line < "7SL6_prot_ACE_NME_re_heavy_renamed_TER.pdb")>0) print line} 1' > COBY_TER.pdb
+
+
+
+
+- Prepare tleap
+
+rename POPC (renamePOPC.py)
+
+rename chains (renameChain.py)
+
+python Scripts/renamePOPC.py
+python Scripts/renameChain.py
+
+- Run tleap
+
+tleap -f tleap.in
+
+start=$(date +%s); tleap -f Scripts/tleap.in; echo time $(( $(date +%s) - $start ))
+
+- Run amber2gmx
+
+python Scripts/convert_and_split.py 7SL6.prmtop 7SL6.inpcrd
+
+- Ready to run
+
+
+

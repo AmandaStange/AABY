@@ -1,0 +1,10 @@
+source leaprc.protein.ff19SB
+source leaprc.water.opc
+source leaprc.lipid21
+
+ramp=loadpdb COBY_TER_lipid21.pdb
+
+
+saveamberparm ramp system.prmtop system.inpcrd
+
+quit
