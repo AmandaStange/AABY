@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import time
+start_time = time.time()    
 
 import argparse
 import subprocess
@@ -36,18 +38,52 @@ def insert_ssbonds_into_tleap(tleap_in_path='tleap.in', ssbond_path='tleap_SSBON
         f.writelines(new_lines)
     print(f"Inserted {ssbonds} after loadpdb in {tleap_in}")
 
-def make_coby_ter_pdb(coby_pdb, ter_pdb, coby_ter_pdb):
-    with open(ter_pdb) as f:
-        ter_lines = [line for line in f if not line.startswith('END')]
-    i = len(ter_lines)
-    j = sum(1 for line in ter_lines if line.strip() == 'TER')
-    diff = i - j + 4
-    with open(coby_pdb) as f:
-        coby_lines = f.readlines()
-    new_lines = coby_lines[:4] + ter_lines + coby_lines[diff:]
+def make_coby_ter_pdb(coby_pdb, pre_coby_pdb, coby_ter_pdb):
+    """
+    Insert TER records into the COBY PDB wherever a TER occurred in the pre-COBY PDB,
+    by matching residue numbers. Assumes all chains become A in COBY output.
+    """
+    # 1. Find residue numbers before each TER in the pre-COBY file
+    ter_resids = []
+    prev_resid = None
+    with open(pre_coby_pdb) as f:
+        for line in f:
+            if line.startswith(("ATOM", "HETATM")):
+                prev_resid = int(line[22:26])
+            elif line.startswith("TER"):
+                if prev_resid is not None:
+                    ter_resids.append(prev_resid)
+                prev_resid = None
+
+    # 2. Parse COBY PDB, insert TER after each matching resid
+    output_lines = []
+    last_resid = None
+    last_atomnum = None
+    last_resname = None
+
+    for i, line in enumerate(open(coby_pdb)):
+        output_lines.append(line)
+        if line.startswith(("ATOM", "HETATM")):
+            resid = int(line[22:26])
+            atomnum = int(line[6:11])
+            resname = line[17:20]
+            if last_resid is not None and last_resid in ter_resids and resid != last_resid:
+                # Insert TER *after* last atom of the pre-TER residue
+                ter_line = f"TER   {last_atomnum:5d}      {last_resname} A{last_resid:>4}\n"
+                output_lines.insert(-1, ter_line)  # Insert before the current line
+            last_resid = resid
+            last_atomnum = atomnum
+            last_resname = resname
+
+    # Also handle case where the last residue should get a TER (optional)
+    # (Not usually needed; leave as is)
+
     with open(coby_ter_pdb, 'w') as f:
-        f.writelines(new_lines)
-    print(f"Wrote merged COBY/protein file: {coby_ter_pdb}")
+        f.writelines(output_lines)
+    print(f"Wrote merged COBY/protein file with TERs: {coby_ter_pdb}")
+
+
+
 
 def substitute_protein_pdb(args_list, protein_pdb):
     return [str(x).replace("{protein_pdb}", str(protein_pdb)) for x in args_list]
@@ -100,6 +136,7 @@ def main():
         ssbonded_pdb = out_ace_nme.with_name(out_renum.stem + '_ssbond.pdb')
         assert ssbonded_pdb.exists(), "re_ss failed"
         working_pdb = ssbonded_pdb
+        run(f'cp Scripts/tleap.in .')
         insert_ssbonds_into_tleap('tleap.in', 'tleap_SSBONDs.txt')
     else:
         working_pdb = out_renum
@@ -175,13 +212,16 @@ def main():
         pass
 
     # 10. Run tleap
-    run('tleap -f Scripts/tleap.in')
+    run('tleap -f tleap.in')
     prmtop, inpcrd = autodetect_amber_files()
 
     # 11. Run convert_and_split
     run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd}')
+    run(f'python Scripts/resolvate.py {base}_AABY')
 
-    print("\n✅ All done. Your system is ready for AMBER and GROMACS.")
+    total_time = time.time() - start_time
+    print(f"\n✅ All done. Your system is ready for GROMACS.")
+    print(f"Total build time: {total_time:.1f} seconds ({total_time/60:.2f} minutes)")
 
 if __name__ == "__main__":
     main()
