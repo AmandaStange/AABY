@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import time
-start_time = time.time()    
+start_time = time.time()
 
 import argparse
 import subprocess
 from pathlib import Path
 import sys
+import os
 import shutil
 import yaml
 
@@ -103,6 +104,7 @@ def main():
     parser = argparse.ArgumentParser(description="AABY: End-to-end AMBER system builder from PDB")
     parser.add_argument('-f', '--input', required=True, help='Input PDB file')
     parser.add_argument('--chains', default="A,B,C,D", help='Comma-separated list of protein chains for ACE/NME')
+    parser.add_argument('-r', '--replicas', type=int, default=1, help='Number of resolvated replicas')
     parser.add_argument('--ssbond', action='store_true', help='Renumber SSBOND.txt, convert CYS to CYX, insert ssbonds into tleap.in')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
@@ -217,7 +219,14 @@ def main():
 
     # 11. Run convert_and_split
     run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd}')
-    run(f'python Scripts/resolvate.py {base}_AABY')
+    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas}')
+    # if args.replicas == 1:
+    #     run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+    # else:
+    #     for rep in range(1, args.replicas + 1):
+    #         ros.chdir(f'r{rep}')
+    #         run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+    #         os.chdir("..")
 
     total_time = time.time() - start_time
     print(f"\n✅ All done. Your system is ready for GROMACS.")
