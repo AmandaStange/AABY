@@ -84,7 +84,67 @@ def make_coby_ter_pdb(coby_pdb, pre_coby_pdb, coby_ter_pdb):
     print(f"Wrote merged COBY/protein file with TERs: {coby_ter_pdb}")
 
 
+def auto_detect_types():
+    #input4amber.pdb
+    # source leaprc.protein.ff19SB
+    # source leaprc.water.opc
+    # source leaprc.lipid21
+    #sed -i '1s/^/task goes here\n/' todo.txt
 
+    forcefields = {'protein': 'protein.ff19SB', 'lipid': 'lipid21', 'dna': 'DNA.OL24', 'rna': 'RNA.OL3'}
+
+    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET']
+    lipid = ['PC', 'PA', 'OL', 'CHL']
+    nucleic = ['A','C','G']
+    rna = ['U']
+    dna = ['T']
+    with open('../tests/input4amber.pdb', 'r') as f:
+        lines = f.readlines()
+
+    resnames = []
+    
+    ff_types = []
+
+    for line in lines:
+
+        l = line.split()
+
+        if l[0] == 'END':
+            break
+
+        if l[0] in ['ATOM', 'HETATM']:
+            resnames.append(l[3])
+
+    resnames = list(set(resnames))
+
+
+
+    for resname in resnames:
+        if resname in protein:
+            if 'protein' not in ff_types:
+                ff_types.append('protein')
+        elif resname in lipid:
+            if 'lipid' not in ff_types:
+                ff_types.append('lipid')
+        # elif resname in nucleic:
+        #     if 'nucleic' not in ff_types:
+        #         ff_types.append('nucleic')
+        elif resname in rna:
+            if 'rna' not in ff_types:
+                ff_types.append('rna')
+        elif resname in dna:
+            if 'dna' not in ff_types:
+                ff_types.append('dna')
+        else:
+            print('type not found', resname, ff_types)
+
+    leaprc = ''
+
+    for ff_type in ff_types:
+        leaprc += f'source leaprc.{forcefields[ff_type]}\\n'
+
+            
+    return leaprc
 
 def substitute_protein_pdb(args_list, protein_pdb):
     return [str(x).replace("{protein_pdb}", str(protein_pdb)) for x in args_list]
@@ -207,13 +267,17 @@ def main():
         make_coby_ter_pdb('COBY.pdb', str(coby_input_pdb), 'COBY_TER.pdb')
         run(f'python Scripts/renamePOPC.py')
         run(f'python Scripts/renameChain.py')
+        run(f'cp COBY_TER_lipid21_chains.pdb input4amber.pdb')
         # Always add TER after POPC/chain renaming if needed
         # You can re-use the existing add_ter.py for this purpose if needed
     else:
         # Not COBY: (If you want to split POPC for standalone systems, you could add it here)
+        run(f'cp {coby_input_pdb} input4amber.pdb')
         pass
 
     # 10. Run tleap
+    leap = auto_detect_types()
+    run(f"sed -i '1s/^/{leap}/' tleap.in")
     run('tleap -f tleap.in')
     prmtop, inpcrd = autodetect_amber_files()
 
