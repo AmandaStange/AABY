@@ -168,6 +168,8 @@ def main():
     parser.add_argument('-r', '--replicas', type=int, default=1, help='Number of resolvated replicas')
     parser.add_argument('--ssbond', action='store_true', help='Renumber SSBOND.txt, convert CYS to CYX, insert ssbonds into tleap.in')
     parser.add_argument('--water', default='OPC', help='Which water model to use (default: OPC) (Options: OPC, TIP3P, TIP4PEW)')
+    parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation (first positive then negative)')
+    parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
     group.add_argument('--protlist', type=str, help='Residue list file for direct protonation changes')
@@ -180,6 +182,10 @@ def main():
     tleap_template = Path('Scripts/tleap.in')
     tleap_local = Path('tleap.in')
     shutil.copy(tleap_template, tleap_local)
+
+    tleap_solv_template = Path('Scripts/tleap_solv.in')
+    tleap_solv_local = Path('tleap_solv.in')
+    shutil.copy(tleap_solv_template, tleap_solv_local)
 
     pdb = Path(args.input)
     base = pdb.stem
@@ -207,7 +213,12 @@ def main():
 
     # 4. Delete H (heavy atom only)
     out_heavy = working_pdb.with_name(working_pdb.stem + '_heavy.pdb')
-    run(f'echo 2 | gmx trjconv -f {working_pdb} -s {working_pdb} -o {out_heavy}')
+    run(f'printf "del 0-100\n!a H*\n q\n" | gmx make_ndx -f {working_pdb} -o heavy.ndx')
+    file_size = os.path.getsize('heavy.ndx')
+    if file_size == 0:
+        run(f'cp {working_pdb} {out_heavy}')
+    else:
+        run(f'gmx trjconv -f {working_pdb} -s {working_pdb} -n heavy.ndx -o {out_heavy}')
     assert out_heavy.exists(), "trjconv failed"
 
     # 5. Protonation (by pH/pKa or residue list)
@@ -280,16 +291,32 @@ def main():
     # 10. Run tleap
     leap = auto_detect_types(water_model=args.water)
     run(f"sed -i '1s/^/{leap}/' tleap.in")
+    run(f"sed -i '1s/^/{leap}/' tleap_solv.in")
 
-    ## instert water and ions insert-molecules
-    run(f'gmx insert-molecules -f input4amber.pdb -ci models/{args.water.lower()}.gro -o input4amber.pdb -nmol 1')
-    
     run('tleap -f tleap.in')
-    prmtop, inpcrd = autodetect_amber_files()
+    prmtop, inpcrd, top_file, gro_file, topol = "system.prmtop","system.inpcrd", "system.top", "system.gro", "topol"
+    run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
 
-    # 11. Run convert_and_split
-    run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd}')
-    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water}')
+    # 11. Create topology that includes solvent
+    ## instert water and ions insert-molecules
+    nr_molecules = 0
+    run(f'gmx insert-molecules -f input4amber.pdb -ci models/{args.water.lower()}.gro -o input4amber.pdb -nmol 1')
+    nr_molecules += 1
+    for ion in args.ions.split(','):
+        run(f'sed "s/XX /{ion}/g" models/ion.pdb > models/tmp.pdb')
+        run(f'gmx insert-molecules -f input4amber.pdb -ci models/tmp.pdb -o input4amber.pdb -nmol 1')
+        nr_molecules += 1
+
+    
+    run('tleap -f tleap_solv.in')
+    prmtop, inpcrd, top_file, gro_file, topol = "system_solv.prmtop","system_solv.inpcrd", "system_solv.top", "system_solv.gro", "topol_solv"
+    run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+
+    run(f'grep include topol_solv.top > topol_nowater.top')
+    run(f'grep -v include topol.top >> topol_nowater.top')
+
+    # 12. Resolvate
+    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc}')
     # if args.replicas == 1:
     #     run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
     # else:

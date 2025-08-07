@@ -9,6 +9,7 @@ import argparse
 # ---- USER SETTINGS ----
 input_gro = "system.gro"
 input_top = "topol.top"
+input_top = "topol_nowater.top"
 default_mdp = "../mdps/step6.0_minimization.mdp"
 min_mdp = "../mdps/step5_mini.mdp"
 # -----------------------
@@ -36,7 +37,10 @@ def run(cmd, return_output=False):
     else:
         subprocess.run(cmd, shell=True, check=True)
 
-def remove_ions_and_water_gro(input_gro, output_gro, remove_resnames=REMOVE_RESNAMES):
+def remove_ions_and_water_gro(input_gro, output_gro, remove_resnames=None):
+    if remove_resnames is None:
+        remove_resnames = ["WAT", "SOL", "Na", "Cl","K", "Ca", "Mg", "Zn"]
+    remove_resnames_set = set([x.upper() for x in remove_resnames])
     with open(input_gro) as f:
         lines = f.readlines()
     new_lines = [lines[0], lines[1]]
@@ -208,13 +212,15 @@ def run_softcore_minimization(input_gro, input_top, min_mdp, output_tpr):
     run(f'unset GMX_MAXCONSTRWARN')
 
 def prepare_once(base="system"):
-    remove_ions_and_water_gro(input_gro, intermediate_gro)
-    remove_ions_and_water_top(input_top, intermediate_top)
+    #remove_ions_and_water_gro(input_gro, intermediate_gro)
+    #remove_ions_and_water_top(input_top, intermediate_top)
+    run(f'cp {input_gro} {intermediate_gro}')
+    run(f'cp {input_top} {intermediate_top}')
     resize_box(intermediate_gro, resized_gro)
     run_softcore_minimization(resized_gro, intermediate_top, min_mdp, "softcore.tpr")
     print("[INFO] Preparation done. membrane.gro and noions.top ready.")
 
-def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC'):
+def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Ca+,Cl-", conc="0.15"):
     water_type = {'OPC': 'tip4p', 'TIP3P': 'spc216', 'TIP4PEW': 'tip4p'}
     run(f"gmx solvate -cp membrane.gro -cs {water_type[water.upper()]}.gro -o {resolvated_gro} -p noions.top") ## change water model to user specified
     minz, maxz = get_pc_n31_box(resolvated_gro)
@@ -224,8 +230,9 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     rename_sol_to_wat_gro(cleaned_gro, gro_wat)
     rename_sol_to_wat_top(cleaned_top, top_wat)
     make_ndx_for_wat(gro_wat, ndx)
+    pion, nion = ions.split(',')
     run(f"gmx grompp -f {mdp} -r {gro_wat} -c {gro_wat} -p {top_wat} -o {tpr} -maxwarn 3")
-    run(f'echo WAT | gmx genion -s {tpr} -p {top_wat} -pname Na+ -nname Cl- -neutral -conc 0.15 -o {base}.gro -n {ndx}') ## Change to ions as per user preference
+    run(f'echo WAT | gmx genion -s {tpr} -p {top_wat} -pname {pion} -nname {nion} -neutral -conc {conc} -o {base}.gro -n {ndx}') ## Change to ions as per user preference
     run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p {top_wat} -o pbc.tpr -maxwarn 3")
     run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
     run(f'cp {top_wat} topol.top')
@@ -238,11 +245,13 @@ if __name__ == "__main__":
     parser.add_argument("--replicas", type=int, default=1, help="Number of replicas to run (default: 1)")
     parser.add_argument("--base", type=str, default="system", help="Base name for final output (default: system)")
     parser.add_argument('--water', default='OPC', help='Which water model to use (default: OPC) (Options: OPC, TIP3P, TIP4PEW)')
+    parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation')
+    parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     args = parser.parse_args()
 
     if args.replicas == 1:
         prepare_once(base=args.base)
-        resolvate_only(base=args.base, mdp=default_mdp, water=args.water)
+        resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)
     else:
         prepare_once(base=args.base)
         for i in range(1, args.replicas + 1):
@@ -265,6 +274,6 @@ if __name__ == "__main__":
             os.chdir(rdir)
             try:
                 local_mdp = "mdps/step6.0_minimization.mdp"
-                resolvate_only(base=args.base, mdp=local_mdp, water=args.water)
+                resolvate_only(base=args.base, mdp=local_mdp, water=args.water, ions=args.ions, conc=args.conc)
             finally:
                 os.chdir("..")
