@@ -84,21 +84,21 @@ def make_coby_ter_pdb(coby_pdb, pre_coby_pdb, coby_ter_pdb):
     print(f"Wrote merged COBY/protein file with TERs: {coby_ter_pdb}")
 
 
-def auto_detect_types():
+def auto_detect_types(water_model='OPC'):
     #input4amber.pdb
     # source leaprc.protein.ff19SB
     # source leaprc.water.opc
     # source leaprc.lipid21
     #sed -i '1s/^/task goes here\n/' todo.txt
 
-    forcefields = {'protein': 'protein.ff19SB', 'lipid': 'lipid21', 'dna': 'DNA.OL24', 'rna': 'RNA.OL3'}
+    forcefields = {'protein': 'protein.ff19SB', 'lipid': 'lipid21', 'dna': 'DNA.OL24', 'rna': 'RNA.OL3', 'water': {'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'}}
 
-    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET']
+    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET', 'GLH','NME','HIE','ACE']
     lipid = ['PC', 'PA', 'OL', 'CHL']
     nucleic = ['A','C','G']
     rna = ['U']
     dna = ['T']
-    with open('../tests/input4amber.pdb', 'r') as f:
+    with open('input4amber.pdb', 'r') as f:
         lines = f.readlines()
 
     resnames = []
@@ -140,9 +140,10 @@ def auto_detect_types():
 
     leaprc = ''
 
-    for ff_type in ff_types:
+    for ff_type in sorted(ff_types, key=lambda x: len(x), reverse=True):
         leaprc += f'source leaprc.{forcefields[ff_type]}\\n'
 
+    leaprc += f'source leaprc.{forcefields['water'][water_model.upper()]}\\n'
             
     return leaprc
 
@@ -163,9 +164,10 @@ def autodetect_amber_files():
 def main():
     parser = argparse.ArgumentParser(description="AABY: End-to-end AMBER system builder from PDB")
     parser.add_argument('-f', '--input', required=True, help='Input PDB file')
-    parser.add_argument('--chains', default="A,B,C,D", help='Comma-separated list of protein chains for ACE/NME')
+    parser.add_argument('--chains', default="A", help='Comma-separated list of protein chains for ACE/NME')
     parser.add_argument('-r', '--replicas', type=int, default=1, help='Number of resolvated replicas')
     parser.add_argument('--ssbond', action='store_true', help='Renumber SSBOND.txt, convert CYS to CYX, insert ssbonds into tleap.in')
+    parser.add_argument('--water', default='OPC', help='Which water model to use (default: OPC) (Options: OPC, TIP3P, TIP4PEW)')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
     group.add_argument('--protlist', type=str, help='Residue list file for direct protonation changes')
@@ -276,14 +278,18 @@ def main():
         pass
 
     # 10. Run tleap
-    leap = auto_detect_types()
+    leap = auto_detect_types(water_model=args.water)
     run(f"sed -i '1s/^/{leap}/' tleap.in")
+
+    ## instert water and ions insert-molecules
+    run(f'gmx insert-molecules -f input4amber.pdb -ci models/{args.water.lower()}.gro -o input4amber.pdb -nmol 1')
+    
     run('tleap -f tleap.in')
     prmtop, inpcrd = autodetect_amber_files()
 
     # 11. Run convert_and_split
     run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd}')
-    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas}')
+    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water}')
     # if args.replicas == 1:
     #     run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
     # else:

@@ -1,4 +1,3 @@
-source leaprc.water.opc
 
 
 ramp=loadpdb input4amber.pdb
