@@ -107,16 +107,16 @@ def split_ff_from_topol(topol_file, ff_file="ff.itp", new_topol="topol.top"):
             ftop.write(line)
     print(f"Wrote {new_topol}")
 
-def main(prmtop_file, inpcrd_file):
-    top_file = "system.top"
-    gro_file = "system.gro"
+def main(prmtop_file, inpcrd_file, top_file, gro_file, topol):
+    # top_file = "system.top"
+    # gro_file = "system.gro"
     parmed_convert(prmtop_file, inpcrd_file, top_file, gro_file)
     split_top_to_itps(top_file, toppar_dir="toppar", output_top='topol.top.temp')
-    split_ff_from_topol('topol.top.temp', ff_file="ff.itp", new_topol="topol.top")
+    split_ff_from_topol('topol.top.temp', ff_file="ff.itp", new_topol=f"{topol}.top")
     os.remove("topol.top.temp")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python convert_and_split_full.py file.prmtop file.inpcrd")
+    if len(sys.argv) != 6:
+        print("Usage: python convert_and_split_full.py file.prmtop file.inpcrd, top_file.top, gro_file.gro, topol")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
