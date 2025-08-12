@@ -25,11 +25,11 @@
 - -itp_input
 - file:coby_input.top
 - -molecule_import
-- file:toppar/POPC_rotated.pdb
+- file:COBY_toppar/POPC.pdb
 - moleculetype:POPC
 - params:Amber
 - -molecule_import
-- file:toppar/CHL_rotated.pdb
+- file:COBY_toppar/CHL_rotated.pdb
 - moleculetype:CHL
 - params:Amber
 - -out_sys

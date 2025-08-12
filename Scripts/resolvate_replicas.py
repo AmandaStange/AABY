@@ -95,7 +95,8 @@ def get_pc_n31_box(gro_file):
     maxz = -1e9
     with open(gro_file) as f:
         for l in f:
-            if len(l) > 44 and l[5:10].strip() == "PC" and l[10:15].strip() == "N31":
+            #if len(l) > 44 and l[5:10].strip() == "PC" and l[10:15].strip() == "N31": #PE - N31, PS - N31, PH- -P31, PC - N31, PGR - C32, SPM - N31
+            if len(l) > 44 and (l[5:10].strip(),l[10:15].strip()) in [("PE", 'N31'), ("PS", 'N31'),("PC", 'N31'), ("SPM", 'N31', ("PH-", 'P31'), ("PGR", 'C32'))]: #PE - N31, PS - N31, PH- -P31, PC - N31, PGR - C32, SPM - N31
                 z = float(l[36:44])
                 minz = min(minz, z)
                 maxz = max(maxz, z)
@@ -247,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument('--water', default='OPC', help='Which water model to use (default: OPC) (Options: OPC, TIP3P, TIP4PEW)')
     parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation')
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
+    parser.add_argument('--Z', default='10', help='Which Z height the box needs')
     args = parser.parse_args()
 
     if args.replicas == 1:

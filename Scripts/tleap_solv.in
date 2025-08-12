@@ -1,6 +1,6 @@
 
 
-ramp=loadpdb input4amber.pdb
+ramp=loadpdb input4amber_solv.pdb
 
 
 saveamberparm ramp system_solv.prmtop system_solv.inpcrd

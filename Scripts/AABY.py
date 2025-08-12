@@ -95,6 +95,7 @@ def auto_detect_types(water_model='OPC'):
 
     protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET', 'GLH','NME','HIE','ACE']
     lipid = ['PC', 'PA', 'OL', 'CHL']
+    lipid = ['PA', 'PH-', 'AR', 'PS', 'ST', 'MY', 'PC', 'DHA', 'SA', 'SPM', 'LAL', 'PGR', 'OL', 'PE']
     nucleic = ['A','C','G']
     rna = ['U']
     dna = ['T']
@@ -262,9 +263,36 @@ def main():
     # 8. Run COBY if and only if coby-yaml or coby-args are given
     coby_should_run = bool(args.coby_yaml or args.coby_args)
     if coby_should_run:
+        apls = {'CHL': .41, 'DLPC': 0.61, 'DMPC': 0.60, 'DPPC': 0.62, 'DSPC': 0.60, 'DOPC': 0.67, 'POPC': 0.64, 'POPE': 0.56, 'DLPG': 0.66, 'DMPG': 0.65, 'DPPG': 0.68, 'DSPG': 0.67, 'DOPG': 0.71, 'POPG': 0.68, 'DOPS': 0.65, 'POPS': 0.62, 'POPA': 0.64, 'DAPC': 0.72, 'SDPC': 0.65, 'PSM': 0.58, 'SSM': 0.57}
         if args.coby_yaml:
             with open(args.coby_yaml) as f:
                 coby_args = yaml.safe_load(f)
+            mol_import = []
+            ##NEW
+            for idx, arg in enumerate(coby_args):
+                if isinstance(arg, str):
+                    if arg == "-membrane":
+                        coby_args.insert(idx + 1, 'optimize_run:False')
+                        coby_args.insert(idx + 1, 'grid_maker_algorithm:no_groups')
+                    if arg.split(':')[0] == 'lipid':
+                        mol_import.append(arg.split(':')[1])
+                        coby_args[idx] = coby_args[idx] + f":apl:{apls[arg.split(':')[1]]}:params:Amber"
+            for mol in mol_import:
+                coby_args.append('-molecule_import')
+                coby_args.append(f'file:models/{mol}.pdb')
+                coby_args.append(f'moleculetype:{mol}')
+                coby_args.append('params:Amber')
+
+            coby_args.append('-out_sys')
+            coby_args.append('COBY.pdb')
+            coby_args.append('-out_top')
+            coby_args.append('COBY.top')
+
+            with open('coby_input_params.yaml', 'w') as f:
+                f.write(yaml.dump(coby_args))
+
+            ## newparams ended
+
             if not isinstance(coby_args, list):
                 print(f"YAML file must be a list of arguments, got {type(coby_args)}")
                 sys.exit(1)
@@ -299,15 +327,50 @@ def main():
 
     # 11. Create topology that includes solvent
     ## instert water and ions insert-molecules
+    run('gmx editconf -f input4amber.pdb -o input4amber_solvX.pdb')
     nr_molecules = 0
-    run(f'gmx insert-molecules -f input4amber.pdb -ci models/{args.water.lower()}.gro -o input4amber.pdb -nmol 1')
+    nr_atoms = 0 #'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'
+    nr_atoms_water = {'OPC': 4, 'TIP3P': 3, 'TIP4PEW': 4}
+    run(f'gmx insert-molecules -f input4amber_solvX.pdb -ci models/{args.water.lower()}.gro -o input4amber_solv{nr_molecules}.pdb -nmol 1')
     nr_molecules += 1
+    nr_atoms += nr_atoms_water[args.water]
     for ion in args.ions.split(','):
         run(f'sed "s/XX /{ion}/g" models/ion.pdb > models/tmp.pdb')
-        run(f'gmx insert-molecules -f input4amber.pdb -ci models/tmp.pdb -o input4amber.pdb -nmol 1')
+        run(f'gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb -ci models/tmp.pdb -o input4amber_solv{nr_molecules}.pdb -nmol 1')
         nr_molecules += 1
+        nr_atoms += 1
+
+    # with open(f"input4amber_solv{nr_molecules-1}.pdb", "rb") as f:
+    #     after_insert = sum(1 for _ in f)
+
+    # with open(f"input4amber_solvX.pdb", "rb") as f:
+    #     before_insert = sum(1 for _ in f)
+
+    difference_lines = nr_atoms + 2
+    inserted_lines = []
+    with open(f"input4amber_solv{nr_molecules-1}.pdb", "r") as f:
+        lines = f.readlines()
+        for line in lines[-difference_lines:]:
+            inserted_lines.append(line)
 
     
+
+    with open(f"input4amber.pdb", "r") as f:
+        og_lines = f.readlines()
+        original_length = len(og_lines)
+
+    # print("OG LIENS", og_lines)
+    
+    with open('input4amber_solv.pdb','w') as f:
+        for line in og_lines[:-2]:
+            
+            f.write(line)
+        for line in inserted_lines:
+            
+            f.write(line)
+
+
+
     run('tleap -f tleap_solv.in')
     prmtop, inpcrd, top_file, gro_file, topol = "system_solv.prmtop","system_solv.inpcrd", "system_solv.top", "system_solv.gro", "topol_solv"
     run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
