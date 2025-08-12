@@ -221,7 +221,87 @@ def prepare_once(base="system"):
     run_softcore_minimization(resized_gro, intermediate_top, min_mdp, "softcore.tpr")
     print("[INFO] Preparation done. membrane.gro and noions.top ready.")
 
-def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Ca+,Cl-", conc="0.15"):
+def fix_topol():
+    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET', 'GLH','NME','HIE','ACE']
+    lipid = ['PA', 'PH-', 'AR', 'PS', 'ST', 'MY', 'PC', 'DHA', 'SA', 'SPM', 'LAL', 'PGR', 'OL', 'PE']
+    nucleic = ['A','C','G', 'U', 'T']
+    lipid_residues = {"DAPC": ["AR", "PC", "AR"],
+    "DLPC": ["LAL", "PC", "LAL"],
+    "DLPG": ["LAL", "PGR", "LAL"],
+    "DMPC": ["MY", "PC", "MY"],
+    "DMPG": ["MY", "PGR", "MY"],
+    "DOPC": ["OL", "PC", "OL"],
+    "DOPG": ["OL", "PGR", "OL"],
+    "DOPS": ["OL", "PS", "OL"],
+    "DPPC": ["PA", "PC", "PA"],
+    "DPPG": ["PA", "PGR", "PA"],
+    "DSPC": ["ST", "PC", "ST"],
+    "DSPG": ["ST", "PGR", "ST"],
+    "POPA": ["PA", "PH-", "OL"],
+    "POPC": ["PA", "PC", "OL"],
+    "POPE": ["PA", "PE", "OL"],
+    "POPG": ["PA", "PGR", "OL"],
+    "POPS": ["PA", "PS", "OL"],
+    "PSM": ["PA", "SPM", "SA"],
+    "SDPC": ["ST", "PC", "DHA"],
+    "SSM": ["ST", "SPM", "SA"]}
+    run(f'mv ff.itp toppar/')
+    run(f'sed -i "s/ff/toppar\/ff/" topol.top')
+    with open('topol.top') as f:
+        lines = f.readlines()
+    systems = []
+    for line in lines:
+        l = line.split()
+        if len(l) == 0:
+            break
+        if l[0] == '#include':
+            if l[1].split('/')[1][:6] == 'system':
+                print(l[1].split('/')[1][:-1])
+                systems.append(l[1][1:-1])
+    system_types = {}
+    number_protein = 1
+    number_nucleic = 1
+    for idx, system in enumerate(systems):
+        #print(idx, system)
+        with open(system) as f:
+            lines = f.readlines()
+            atoms = False
+            residues = []
+            for line in lines:
+                # print(line[:6] )
+                if atoms:
+                    if line.startswith('\n'):
+                        atoms = False
+                        residues = sorted(list(set(residues)))
+                        for l, r in lipid_residues.items():
+                            #print(l,r, residues, sorted(set(r)))
+                            if residues == sorted(set(r)):
+                                system_types[idx+1] = l
+                        break
+                    res = line.split()[3]
+                    if res in protein:
+                        system_types[idx+1] = f'protein{number_protein}'
+                        number_protein += 1
+                        break
+                    elif res in nucleic:
+                        system_types[idx+1] = f'nucleic{number_nucleic}'
+                        number_nucleic += 1
+                        break
+                    else:
+                        residues.append(res)
+                if line[:6] == ';   nr':
+                    atoms = True
+    for system, system_type in system_types.items():
+        print(system, system_type)
+        run(f'mv toppar/system{system}.itp toppar/{system_type}.itp')
+        run(fr'sed -i "s/system{system}\./{system_type}\./g" toppar/{system_type}.itp')
+        run(fr'sed -i "s/system{system}\./{system_type}\./g" topol.top')
+        run(f'sed -i "s/system{system} /{system_type} /g" toppar/{system_type}.itp')
+        run(f'sed -i "s/system{system} /{system_type} /g" topol.top')
+
+
+
+def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Na+,Cl-", conc="0.15"):
     water_type = {'OPC': 'tip4p', 'TIP3P': 'spc216', 'TIP4PEW': 'tip4p'}
     run(f"gmx solvate -cp membrane.gro -cs {water_type[water.upper()]}.gro -o {resolvated_gro} -p noions.top") ## change water model to user specified
     minz, maxz = get_pc_n31_box(resolvated_gro)
@@ -237,8 +317,7 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p {top_wat} -o pbc.tpr -maxwarn 3")
     run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
     run(f'cp {top_wat} topol.top')
-    run(f'mv ff.itp toppar/')
-    run(f'sed -i "s/ff/toppar\/ff/" topol.top')
+    fix_topol()
     print(f"[DONE] See {base}.gro and {base}.top for output.")
 
 if __name__ == "__main__":
