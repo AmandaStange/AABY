@@ -63,6 +63,7 @@ def resize_box(input_gro, output_gro):
     new_z_length = float(run(f"tail -1 {output_gro} | awk '{{print $3}}'", return_output=True).strip())
     last_line_nr = int(run(f"wc -l {output_gro} | awk '{{print $1}}'", return_output=True).strip())
     run(f'sed -i "{last_line_nr}s/{new_z_length}.*/{z_length}/" {output_gro}')
+    run(f'gmx editconf -f {output_gro} -c -o {output_gro}')
 
 def remove_ions_and_water_top(input_top, output_top, remove_resnames=None):
     if remove_resnames is None:
