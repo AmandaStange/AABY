@@ -324,6 +324,8 @@ def main():
     run('tleap -f tleap.in')
     prmtop, inpcrd, top_file, gro_file, topol = "system.prmtop","system.inpcrd", "system.top", "system.gro", "topol"
     run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+    run(f'gmx editconf -f input4amber.pdb -o input4amber.gro; am=$(tail -n 1 input4amber.gro); sm=$(tail -n 1 system.gro); sed -i "s/$sm/$am/" system.gro')
+
 
     # 11. Create topology that includes solvent
     ## instert water and ions insert-molecules
@@ -380,13 +382,13 @@ def main():
 
     # 12. Resolvate
     run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc}')
-    # if args.replicas == 1:
-    #     run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
-    # else:
-    #     for rep in range(1, args.replicas + 1):
-    #         ros.chdir(f'r{rep}')
-    #         run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
-    #         os.chdir("..")
+    if args.replicas == 1:
+        run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+    else:
+        for rep in range(1, args.replicas + 1):
+            ros.chdir(f'r{rep}')
+            run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+            os.chdir("..")
 
     total_time = time.time() - start_time
     print(f"\n✅ All done. Your system is ready for GROMACS.")
