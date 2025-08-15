@@ -17,6 +17,68 @@ def run(cmd, shell=True, check=True):
         print(f"Running: {cmd}")
     subprocess.run(cmd, shell=shell, check=check)
 
+def add_ter_rename_chains(pdb, out_ter_rename_chains):
+    with open(pdb) as f:
+        lines = f.readlines()
+    resids = []
+    resids_unique = []
+    chainids = []
+    TERs = []
+    idxs = []
+    isATOM = False
+    i = 0
+    for idx, line in enumerate(lines):
+        if line[:4] in ['ATOM', 'HETA']:
+            resid = int(line[22:27])
+            chainid = line[21]
+            if i == 0:
+                resids_unique.append(resid)
+                i += 1
+            if resids_unique[-1] != resid:
+                resids_unique.append(resid)
+            resids.append(resid)
+            chainids.append(chainid)
+            idxs.append(idx)
+
+        if line[:3] in ['TER']:
+            TERs.append(idx)
+    new_TERs = []
+    for i in range(1,len(resids)):
+        if resids[i] - resids[i-1] > 1: 
+            if idxs[i] - idxs[i - 1] != 2:
+                
+                new_TERs.append(idxs[i] + len(new_TERs))
+                print(resids[i-1], resids[i], chainids[i-1], chainids[i], idxs[i-1], idxs[i]) 
+
+    for idx in new_TERs:
+        lines.insert(idx, 'TER\n')
+
+    TERs = []
+    for idx, line in enumerate(lines):
+        if line == 'TER\n':
+            TERs.append(idx)
+
+    chainids = {}
+    chains = range(65, 65+28)
+    TERs = [0] + TERs + [len(lines)]
+    for idx in range(len(TERs)-1):
+        chainids[chr(chains[idx])] = range(TERs[idx]+1, TERs[idx+1]+1)
+
+    new_lines = ''
+    for idx, line in enumerate(lines):
+        if line[:4] in ['ATOM', 'HETA']:
+            for k, v in chainids.items():
+                if idx in v:
+                    chain = k
+                    break
+            new_lines += f'{line[:21]}{chain}{line[22:]}'
+        else:
+            new_lines += line
+    with open(out_ter_rename_chains, "w") as f:
+        f.write("".join(new_lines))
+
+
+
 def insert_ssbonds_into_tleap(tleap_in_path='tleap.in', ssbond_path='tleap_SSBONDs.txt'):
     tleap_in = Path(tleap_in_path)
     ssbonds = Path(ssbond_path)
@@ -191,13 +253,18 @@ def main():
     pdb = Path(args.input)
     base = pdb.stem
 
+    # 0. Add TERs and rename chains
+    out_ter_rename_chains = pdb.with_name(base + '_breaks.pdb')
+    add_ter_rename_chains(pdb, out_ter_rename_chains)
+
+
     # 1. Add caps
-    out_ace_nme = pdb.with_name(base + '_ACE_NME.pdb')
-    run(f'python Scripts/add_ace_nme.py {pdb} {args.chains}')
+    out_ace_nme = pdb.with_name(base + '_breaks_ACE_NME.pdb')
+    run(f'python Scripts/add_ace_nme.py {out_ter_rename_chains} {args.chains}')
     assert out_ace_nme.exists(), "add_ace_nme failed"
 
     # 2. Renumber
-    out_renum = pdb.with_name(base + '_ACE_NME_re.pdb')
+    out_renum = pdb.with_name(base + '_breaks_ACE_NME_re.pdb')
     run(f'gmx editconf -f {out_ace_nme} -resnr 1 -o {out_renum}')
     assert out_renum.exists(), "editconf renumber failed"
 
