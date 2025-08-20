@@ -23,6 +23,7 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
     resids = []
     resids_unique = []
     chainids = []
+    new_chain = []
     TERs = []
     idxs = []
     isATOM = False
@@ -33,9 +34,12 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
             chainid = line[21]
             if i == 0:
                 resids_unique.append(resid)
+                new_chain.append([chainid, idx])
                 i += 1
             if resids_unique[-1] != resid:
                 resids_unique.append(resid)
+            if new_chain[-1][0] != chainid:
+                new_chain.append([chainid, idx])
             resids.append(resid)
             chainids.append(chainid)
             idxs.append(idx)
@@ -43,26 +47,33 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
         if line[:3] in ['TER']:
             TERs.append(idx)
     new_TERs = []
+
     for i in range(1,len(resids)):
-        if resids[i] - resids[i-1] > 1: 
+        if abs(resids[i] - resids[i-1]) > 1:
             if idxs[i] - idxs[i - 1] != 2:
-                
+
                 new_TERs.append(idxs[i] + len(new_TERs))
-                print(resids[i-1], resids[i], chainids[i-1], chainids[i], idxs[i-1], idxs[i]) 
+                print(resids[i-1], resids[i], chainids[i-1], chainids[i], idxs[i-1], idxs[i])
 
     for idx in new_TERs:
         lines.insert(idx, 'TER\n')
+
+
 
     TERs = []
     for idx, line in enumerate(lines):
         if line == 'TER\n':
             TERs.append(idx)
 
+
+
     chainids = {}
     chains = range(65, 65+28)
-    TERs = [0] + TERs + [len(lines)]
+    TERs = [0] + TERs
+
     for idx in range(len(TERs)-1):
         chainids[chr(chains[idx])] = range(TERs[idx]+1, TERs[idx+1]+1)
+
 
     new_lines = ''
     for idx, line in enumerate(lines):
@@ -76,6 +87,7 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
             new_lines += line
     with open(out_ter_rename_chains, "w") as f:
         f.write("".join(new_lines))
+
 
 
 

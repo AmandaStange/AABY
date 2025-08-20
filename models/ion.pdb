@@ -1,0 +1,7 @@
+TITLE     ION
+REMARK    THIS IS A SIMULATION BOX
+CRYST1   18.621   18.621   18.621  90.00  90.00  90.00 P 1           1
+MODEL        1
+ATOM      1  XX   XX     1       2.300   6.280   1.130  1.00  0.00            
+TER
+ENDMDL
