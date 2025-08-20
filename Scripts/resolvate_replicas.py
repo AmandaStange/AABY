@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import re
 import os
 import shutil
 import argparse
@@ -301,6 +302,242 @@ def fix_topol():
         run(f'sed -i "s/system{system} /{system_type} /g" topol.top')
 
 
+def fix_itp(base):
+    with open('topol.top') as f:
+        lines = f.readlines()
+    systems = []
+    for line in lines:
+        l = line.split()
+        if len(l) == 0:
+            break
+        if l[0] == '#include':
+            if l[1].split('/')[1].split('.')[0][:7]in ['protein', 'nucleic']:
+                systems.append(l[1][1:-1])
+
+
+    with open(f'{base[:-5]}_breaks_ACE_NME.pdb') as f:
+        correct = f.readlines()
+
+    chain_idx = 0
+    correct_residues = {}
+    correct_residues[chain_idx] = []
+    for idx, line in enumerate(correct):
+        if line[:3] == 'TER':
+            chain_idx += 1
+            correct_residues[chain_idx] = []
+
+        elif line[:4] in ['ATOM', 'HETA']:
+            resid = int(line[22:27])
+            resname = line[17:20].strip()
+            chain = line[21]
+            if len(correct_residues[chain_idx]) == 0:
+                correct_residues[chain_idx].append((resname, resid, chain))
+            elif (resname, resid, chain) != correct_residues[chain_idx][-1]:
+                correct_residues[chain_idx].append((resname, resid, chain))
+
+    for chain_idx, system in enumerate(systems):
+        with open(system) as f:
+            lines = f.readlines()
+        new_lines = ''
+
+        atoms = False
+        residues = []
+        nxt = False
+        res_idx = -1
+        for line in lines:
+            if atoms:
+                if line.startswith('\n'):
+                    atoms = False
+                    residues = sorted(list(set(residues)))
+                    new_lines += line
+                elif line.startswith('; residue'):
+                    res_idx += 1
+                    resid = line.split()[2]
+                    residue = line.split()[3]
+                    if 'protein' in system:
+                        try:
+                            new_lines += line[:10] + f'{correct_residues[chain_idx][res_idx][1]:>4} {residue:>3}' + line[18:]
+                        except:
+                            chain_idx += 1
+                            res_idx = 0
+                            new_lines += line[:10] + f'{correct_residues[chain_idx][res_idx][1]:>4} {residue:>3}' + line[18:]
+                    elif 'nucleic' in system:
+                        new_lines += line
+                        new_lines += line[:10] + f'{correct_residues[chain_idx][res_idx][1]:>4} {residue:<3}' + line[18:]
+                    nxt = True
+                    
+
+                else:
+                    try:
+                        resid, residue = line[19:31].split()
+                        new_lines += line[:19] + f'{correct_residues[chain_idx][res_idx][1]:>4}{residue:>7}' + line[30:]
+                        nxt = False
+                    except:
+                        chain_idx += 1
+                        res_idx = 0
+                        resid, residue = line[19:31].split()
+                        new_lines += line[:19] + f'{correct_residues[chain_idx][res_idx][1]:>4}{residue:>7}' + line[30:]
+                        nxt = False
+                
+            else:
+                if line[:6] == ';   nr':
+                    atoms = True
+
+                new_lines += line
+
+        with open(f'toppar/{system.split('/')[1]}', 'w') as f:
+            f.write(new_lines)
+        
+
+def add_ter_rename_chains(base):
+
+    # Lipids we should stop before (we don't assign chains/TERs into these)
+    lipids = {
+        'CHL','DLPC','DMPC','DPPC','DSPC','DOPC','POPC','POPE','DLPG','DMPG','DPPG',
+        'DSPG','DOPG','POPG','DOPS','POPS','POPA','DAPC','SDPC','PSM','SSM'
+    }
+    # Common solvent/ion names to stop before (covers "no lipids → water" case)
+    stop_before = {
+        'SOL','WAT','HOH','TIP3','TIP3P','TIP4','TIP4P','TIP5','SPC','SPCE',
+        'NA','NA+','CL','CL-','K','K+','MG','MG2','CA','CA2','ZN','ZN2',
+        'SOD','POT','CLA'  # alternative ion labels
+    }
+
+    # --- 1) Parse non-solvent, non-lipid molecules (in order) from topol.top ---
+    molecules = []  # list of (name, count)
+    with open('topol.top') as f:
+        in_mols = False
+        for line in f:
+            if line.startswith('; Compound'):
+                in_mols = True
+                continue
+            if not in_mols:
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            if parts[0].startswith('['):  # next section reached
+                break
+            name = parts[0]
+            # stop when we hit first lipid or solvent/ion entry
+            if name[:7] in lipids or name in stop_before:
+                break
+            try:
+                count = int(parts[1])
+            except Exception:
+                continue
+            molecules.append((name, count))
+
+    # --- 2) Count atoms per molecule instance from its .itp ([ atoms ] rows) ---
+    mol_atom_counts = {}
+    for name, _ in molecules:
+        atoms = 0
+        with open(f'toppar/{name}.itp') as f:
+            in_atoms = False
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                if s.startswith('['):
+                    in_atoms = (s.lower().startswith('[ atoms ]'))
+                    continue
+                if not in_atoms or s.startswith(';'):
+                    continue
+                # Count actual atom rows (first token is an integer index)
+                tok0 = s.split(None, 1)[0]
+                if tok0.isdigit():
+                    atoms += 1
+        if atoms == 0:
+            raise RuntimeError(f"No atoms parsed in IR0/r1/toppar/{name}.itp")
+        mol_atom_counts[name] = atoms
+
+    # Flatten per-instance list for the non-solvent/non-lipid region
+    nonlipid_instances = []
+    for name, count in molecules:
+        for _ in range(count):
+            nonlipid_instances.append((name, mol_atom_counts[name]))
+    total_nonlipid_atoms = sum(n for _, n in nonlipid_instances)
+
+    # --- helper: single-char chain IDs, cycle after 62 ---
+    def next_chain_letter(idx):
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return alphabet[idx % len(alphabet)]
+
+    with open(f'{base}.pdb') as f:
+        pdb_lines = f.readlines()
+
+    out = []
+    chain_idx = 0
+    current_chain_id = next_chain_letter(chain_idx)
+    atoms_seen_in_instance = 0
+    inst_i = 0
+    atoms_in_this_instance = nonlipid_instances[0][1] if nonlipid_instances else 0
+
+    prev_resid = None
+    prev_is_atom = False
+
+    is_atom = re.compile(r'^(ATOM  |HETATM)')
+
+    def parse_resid(line):
+        try:
+            return int(line[22:26])
+        except Exception:
+            return None
+
+    atom_counter_total = 0  # ATOM/HETATM across the whole PDB
+
+    for line in pdb_lines:
+        if not is_atom.match(line):
+            out.append(line)
+            continue
+
+        atom_counter_total += 1
+        within_nonlipid = atom_counter_total <= total_nonlipid_atoms
+
+        if within_nonlipid:
+            resid = parse_resid(line)
+
+            # Break only when residue number decreases or jumps by >1
+            chain_break = (
+                prev_is_atom and prev_resid is not None and resid is not None and
+                (resid < prev_resid or resid - prev_resid > 1)
+            )
+
+            # Start of next instance: trigger TER before writing its first atom
+            end_of_instance = (atoms_seen_in_instance + 1 > atoms_in_this_instance)
+
+            if chain_break or end_of_instance:
+                out.append('TER\n')
+                chain_idx += 1
+                current_chain_id = next_chain_letter(chain_idx)
+                if end_of_instance:
+                    inst_i += 1
+                    if inst_i < len(nonlipid_instances):
+                        atoms_in_this_instance = nonlipid_instances[inst_i][1]
+                        atoms_seen_in_instance = 0
+                prev_resid = None  # reset across boundary
+
+            # write ATOM with chain ID in column 22 (0-based 21)
+            new_line = f"{line[:21]}{current_chain_id}{line[22:]}"
+            out.append(new_line)
+
+            prev_resid = resid
+            prev_is_atom = True
+            atoms_seen_in_instance += 1
+
+            # --- NEW: ensure a final TER after the very last non-lipid atom ---
+            if atom_counter_total == total_nonlipid_atoms:
+                out.append('TER\n')
+
+        else:
+            # Past the protein/ligand region: copy solvent/lipids unchanged
+            out.append(line)
+            prev_is_atom = True
+
+    #return ''.join(out)
+    with open(f'{base}.pdb','w') as f:
+        f.write(''.join(out))
+
 
 def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Na+,Cl-", conc="0.15"):
     water_type = {'OPC': 'tip4p', 'TIP3P': 'spc216', 'TIP4PEW': 'tip4p'}
@@ -315,11 +552,14 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     pion, nion = ions.split(',')
     run(f"gmx grompp -f {mdp} -r {gro_wat} -c {gro_wat} -p {top_wat} -o {tpr} -maxwarn 3")
     run(f'echo WAT | gmx genion -s {tpr} -p {top_wat} -pname {pion} -nname {nion} -neutral -conc {conc} -o {base}.gro -n {ndx}') ## Change to ions as per user preference
-    run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p {top_wat} -o pbc.tpr -maxwarn 3")
-    run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
     run(f'cp {top_wat} topol.top')
     fix_topol()
-    print(f"[DONE] See {base}.gro and {base}.top for output.")
+    fix_itp(base)
+    run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p topol.top -o pbc.tpr -maxwarn 3")
+    run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
+    run(f'gmx editconf -f {base}.gro -o {base}.pdb -label X')
+    add_ter_rename_chains(base)
+    print(f"[DONE] See {base}.gro, {base}.pdb, and {base}.top for output.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -351,6 +591,8 @@ if __name__ == "__main__":
             # Copy ff.itp if present
             if os.path.exists("ff.itp"):
                 shutil.copy("ff.itp", os.path.join(rdir, "ff.itp"))
+
+            run(f'cp {args.base[:-5]}_breaks_ACE_NME.pdb r{i}')
 
             print(f"\n[INFO] Running replica {i} in {rdir}")
             os.chdir(rdir)
