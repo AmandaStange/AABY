@@ -484,7 +484,7 @@ def add_ter_rename_chains(base):
         except Exception:
             return None
 
-    atom_counter_total = 0  # ATOM/HETATM across the whole PDB
+    atom_counter_total = 0  # ATOM/HETATM ac-s the whole PDB
 
     for line in pdb_lines:
         if not is_atom.match(line):
@@ -556,7 +556,8 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     fix_topol()
     fix_itp(base)
     run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p topol.top -o pbc.tpr -maxwarn 3")
-    run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
+    #run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
+    run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc res -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole') 
     run(f'gmx editconf -f {base}.gro -o {base}.pdb -label X')
     add_ter_rename_chains(base)
     print(f"[DONE] See {base}.gro, {base}.pdb, and {base}.top for output.")
