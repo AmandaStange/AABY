@@ -167,7 +167,7 @@ def auto_detect_types(water_model='OPC'):
 
     forcefields = {'protein': 'protein.ff19SB', 'lipid': 'lipid21', 'dna': 'DNA.OL24', 'rna': 'RNA.OL3', 'water': {'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'}}
 
-    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET', 'GLH','NME','HIE','ACE']
+    protein = ['CYS','ASP','SER','GLN','LYS','ILE','PRO','THR','PHE','ASN','GLY','HIS','LEU','ARG','TRP','ALA','VAL','GLU','TYR','MET', 'GLH','NME','HIE','ACE', 'HID', 'CYX']
     lipid = ['PC', 'PA', 'OL', 'CHL']
     lipid = ['PA', 'PH-', 'AR', 'PS', 'ST', 'MY', 'PC', 'DHA', 'SA', 'SPM', 'LAL', 'PGR', 'OL', 'PE']
     nucleic = ['A','C','G']
@@ -288,6 +288,7 @@ def main():
         working_pdb = ssbonded_pdb
         run(f'cp Scripts/tleap.in .')
         insert_ssbonds_into_tleap('tleap.in', 'tleap_SSBONDs.txt')
+        insert_ssbonds_into_tleap('tleap_solv.in', 'tleap_SSBONDs.txt')
     else:
         working_pdb = out_renum
 
@@ -322,6 +323,8 @@ def main():
     # 6. Rename CD ILE and HIS
     run(f'sed -i "s/CD  ILE/CD1 ILE/g" {renamed_pdb}')
     run(f'sed -i "s/HIS/HIE/g" {renamed_pdb}')
+    run(f'sed -i "s/HSD/HID/g" {renamed_pdb}')
+    run(f'sed -i "s/HSE/HIE/g" {renamed_pdb}')
 
     # 7. Add TER
     ter_pdb = renamed_pdb.with_name(renamed_pdb.stem + '_TER.pdb')
@@ -465,7 +468,7 @@ def main():
         run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
     else:
         for rep in range(1, args.replicas + 1):
-            ros.chdir(f'r{rep}')
+            os.chdir(f'r{rep}')
             run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
             os.chdir("..")
 
