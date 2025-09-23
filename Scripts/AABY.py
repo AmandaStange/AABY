@@ -236,6 +236,29 @@ def autodetect_amber_files():
     print(f"Using inpcrd: {inpcrd}")
     return prmtop, inpcrd
 
+def antechamber(mol2=None, nc=0):
+    ## Lines taken from amber_geostad gcif_to_mol2
+    res = mol2.split('_')[0]
+    run(f"$AMBERHOME/bin/antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -bk comp_{res} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
+    # run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -bk comp_{res} -s 0 -dr no -at gaff2 -c bcc -nc {nc} -ek "qm_theory=\'AM1\', maxcyc=1, ndiis_attempts=700"')
+    # in_atoms=False
+    # with open(f"{mol2}.mol2") as f, open(f"{res}.chg","w") as out:
+    #     for ln in f:
+    #         if ln.startswith("@<TRIPOS>ATOM"): in_atoms=True; continue
+    #         if ln.startswith("@<TRIPOS>") and not ln.startswith("@<TRIPOS>ATOM"): in_atoms=False
+    #         if in_atoms:
+    #             p=ln.split()
+    #             if len(p)>=9: out.write(p[8]+"\n")
+    # #run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -at gaff2 -c rc -cf {res}.chg -nc 0 -rn NMP -pf y -dr no -s 0') #
+    # run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -at gaff2 -rn NMP -c bcc -nc 0 -s 2') #-at gaff2 -rn NMP -c bcc -nc 0 -s 2
+    run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {res}.mol2 -f mol2 -o {res}.frcmod")
+    run(f'/bin/rm -f ANTECH* ATOMTYP* sqm.*')
+    tleap_ante = f"source leaprc.gaff2 \\n{res} = loadMol2 {res}.mol2 \\nloadAmberParams {res}.frcmod\\n"
+    run(f'sed -i "1s/^/{tleap_ante}/" tleap.in')
+    run(f'sed -i "1s/^/{tleap_ante}/" tleap_solv.in')
+
+    
+
 def main():
     parser = argparse.ArgumentParser(description="AABY: End-to-end AMBER system builder from PDB")
     parser.add_argument('-f', '--input', required=True, help='Input PDB file')
@@ -245,6 +268,9 @@ def main():
     parser.add_argument('--water', default='OPC', help='Which water model to use (default: OPC) (Options: OPC, TIP3P, TIP4PEW)')
     parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation (first positive then negative)')
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
+    parser.add_argument('--antechamber', default=False, help='Option to use antechamber to parameterise ligands')
+    parser.add_argument('--mol2', default=None, help='Mol2 filename (without extension) to specify the ligand to be parameterised')
+    parser.add_argument('--nc', default=0, help='Net charge of ligand')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
     group.add_argument('--protlist', type=str, help='Residue list file for direct protonation changes')
@@ -399,6 +425,11 @@ def main():
         pass
 
     # 10. Run tleap
+
+    # 10.a Run antechamber
+    if args.antechamber:
+        antechamber(mol2=args.mol2, nc=args.nc)
+
     leap = auto_detect_types(water_model=args.water)
     run(f"sed -i '1s/^/{leap}/' tleap.in")
     run(f"sed -i '1s/^/{leap}/' tleap_solv.in")
