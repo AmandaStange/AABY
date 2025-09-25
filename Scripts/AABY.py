@@ -18,7 +18,9 @@ def run(cmd, shell=True, check=True):
     subprocess.run(cmd, shell=shell, check=check)
 
 def add_ter_rename_chains(pdb, out_ter_rename_chains):
-    with open(pdb) as f:
+    
+    run(f"gmx editconf -f {pdb} -o {str(pdb).split('.')[0]}_gmx.pdb")
+    with open(f'{str(pdb).split('.')[0]}_gmx.pdb') as f:
         lines = f.readlines()
     resids = []
     resids_unique = []
@@ -87,6 +89,7 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
             new_lines += line
     with open(out_ter_rename_chains, "w") as f:
         f.write("".join(new_lines))
+    
 
 
 
@@ -236,24 +239,197 @@ def autodetect_amber_files():
     print(f"Using inpcrd: {inpcrd}")
     return prmtop, inpcrd
 
-def antechamber(mol2=None, nc=0):
+def infer_element(line):
+    TWO_LETTER_ELEMS = {
+    "Cl","Br","Na","Mg","Al","Si","Li","Be","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu",
+    "Zn","Ga","Ge","As","Se","Kr","Rb","Sr","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd",
+    "In","Sn","Sb","Te","Xe","Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy",
+    "Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi",
+    "Po","At","Rn"
+}
+    """Prefer PDB element field (cols 77–78). Else infer from atom name."""
+    elem = line[76:78].strip() if len(line) >= 78 else ""
+    if elem:
+        e = elem.capitalize()
+        return e if e in TWO_LETTER_ELEMS else e[:1]
+    # Fallback from atom name field (cols 13–16)
+    an = (line[12:16] if len(line) >= 16 else "").strip()
+    if not an:
+        return "X"
+    if an[:2].capitalize() in ("Cl","Br"):
+        return an[:2].capitalize()
+    if an[:2].capitalize() in TWO_LETTER_ELEMS:
+        return an[:2].capitalize()
+    return an[0].upper()
+
+def format_pdb_atom_name(name, element):
+    """Return a 4-char atom-name field with PDB alignment rules."""
+    if len(element) == 2:
+        return name.ljust(4)[:4]      # 2-letter element -> left-justified
+    else:
+        return name.rjust(4)[-4:]      # 1-letter element -> right-justified
+        
+def rename_pdb4antechamber(
+    inp, outp, cap=4, include_resnames=None, case_insensitive=True,
+    renumber=False, renumber_start=1, update_conect=False
+):
+    """
+    Rename atom names uniquely (per-residue) only for residues in include_resnames,
+    and optionally renumber all atom serials in the full PDB (updates CONECT).
+
+    Args
+    ----
+    inp : str        input PDB
+    outp: str        output PDB
+    cap : int        max atom-name length (default 4)
+    include_resnames: {str} or list/tuple/set of resnames to affect; None = all
+    case_insensitive: bool  compare resnames case-insensitively
+    renumber : bool  renumber serials across entire file
+    renumber_start : int    starting serial
+    update_conect : bool    update CONECT lines to new serials when renumbering
+    """
+    # normalize filter set
+    if include_resnames is None:
+        filter_set = None
+    else:
+        rs = include_resnames if isinstance(include_resnames, (list, tuple, set)) else [include_resnames]
+        filter_set = set(r.upper() if case_insensitive else r for r in rs)
+
+    # First pass: rename (only filtered residues), collect lines
+    out_lines = []
+    counts = {}       # per-residue & element counters
+    model_id = 0
+
+    def resname_pass(line):
+        rn = line[17:20]
+        return rn.strip().upper() if case_insensitive else rn.strip()
+
+    for raw in open(inp, "r"):
+        line = raw.rstrip("\n")
+        rec = line[:6]
+
+        if rec.startswith("MODEL"):
+            # try parse model number, else increment
+            try:
+                model_id = int(line[10:14].strip())
+            except Exception:
+                model_id += 1
+            out_lines.append(line)
+            continue
+
+        if rec.startswith("ATOM  ") or rec.startswith("HETATM"):
+            # ensure padding for safe slicing
+            if len(line) < 80:
+                line = line + " " * (80 - len(line))
+
+            resname = resname_pass(line)
+            do_rename = (filter_set is None) or (resname in filter_set)
+
+            if do_rename:
+                chain   = line[21]
+                resseq  = line[22:26]
+                icode   = line[26]
+                elem    = infer_element(line)
+
+                # per-residue + element key
+                key = (chain, resseq, icode, resname, model_id, elem)
+                counts[key] = counts.get(key, 0) + 1
+
+                new = f"{elem}{counts[key]}"
+                if len(new) > cap:
+                    new = elem + str(counts[key])[: max(1, cap - len(elem))]
+
+                name_field = format_pdb_atom_name(new, elem)
+                line = line[:12] + name_field + line[16:]
+
+                # normalize element field
+                elem_field = elem.rjust(2)[:2]
+                line = line[:76] + elem_field + line[78:]
+
+            out_lines.append(line)
+        else:
+            out_lines.append(line)
+
+    # If no renumbering, write and return
+    if not renumber:
+        with open(outp, "w") as g:
+            g.write("\n".join(out_lines) + ("\n" if out_lines and out_lines[-1] != "" else ""))
+        return
+
+    # Second pass: renumber serials (ATOM/HETATM) and update CONECT
+    # Build mapping old_serial -> new_serial
+    serial_map = {}
+    next_serial = renumber_start
+    renum_lines = []
+
+    for line in out_lines:
+        rec = line[:6]
+        if rec.startswith("ATOM  ") or rec.startswith("HETATM"):
+            if len(line) < 80:
+                line = line + " " * (80 - len(line))
+            old_serial = int(line[6:11])
+            serial_map[old_serial] = next_serial
+            # write new serial into cols 7-11
+            new_serial_field = f"{next_serial:5d}"
+            line = line[:6] + new_serial_field + line[11:]
+            next_serial += 1
+        renum_lines.append(line)
+
+    # Update CONECT if requested
+    if update_conect:
+        final_lines = []
+        for line in renum_lines:
+            if line.startswith("CONECT"):
+                # CONECT + up to five serials in 5-wide fields
+                # columns: 7-11 (atom) then 12-16, 17-21, 22-26, 27-31
+                # We'll parse ints and rewrite via mapping (skip if not present)
+                fields = [line[:6]]  # "CONECT"
+                nums = []
+                # grab 5-wide fields after col 6
+                for i in range(6, len(line), 5):
+                    chunk = line[i:i+5]
+                    if chunk.strip().isdigit():
+                        nums.append(int(chunk))
+                    else:
+                        nums.append(None)
+                if nums:
+                    mapped = []
+                    for n in nums:
+                        if n is None:
+                            mapped.append("     ")
+                        else:
+                            mapped.append(f"{serial_map.get(n, n):5d}")
+                    line = fields[0] + "".join(mapped)
+                    # ensure newline
+                final_lines.append(line)
+            else:
+                final_lines.append(line)
+    else:
+        final_lines = renum_lines
+
+    with open(outp, "w") as g:
+        g.write("\n".join(final_lines) + ("\n" if final_lines and final_lines[-1] != "" else ""))
+
+
+
+def antechamber(mol2=None, nc=None, input_pdb=None):
+    if nc is None:
+        sys.exit("--nc option is not set. This is required for using the --antechamber option!")
     ## Lines taken from amber_geostad gcif_to_mol2
-    res = mol2.split('_')[0]
-    run(f"$AMBERHOME/bin/antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -bk comp_{res} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
-    # run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -bk comp_{res} -s 0 -dr no -at gaff2 -c bcc -nc {nc} -ek "qm_theory=\'AM1\', maxcyc=1, ndiis_attempts=700"')
-    # in_atoms=False
-    # with open(f"{mol2}.mol2") as f, open(f"{res}.chg","w") as out:
-    #     for ln in f:
-    #         if ln.startswith("@<TRIPOS>ATOM"): in_atoms=True; continue
-    #         if ln.startswith("@<TRIPOS>") and not ln.startswith("@<TRIPOS>ATOM"): in_atoms=False
-    #         if in_atoms:
-    #             p=ln.split()
-    #             if len(p)>=9: out.write(p[8]+"\n")
-    # #run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -at gaff2 -c rc -cf {res}.chg -nc 0 -rn NMP -pf y -dr no -s 0') #
-    # run(f'antechamber -i {mol2}.mol2 -fi mol2 -o {res}.mol2 -fo mol2 -at gaff2 -rn NMP -c bcc -nc 0 -s 2') #-at gaff2 -rn NMP -c bcc -nc 0 -s 2
-    run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {res}.mol2 -f mol2 -o {res}.frcmod")
+    #res = mol2.split('_')[0]
+    run(f'grep {mol2} {input_pdb} > {mol2}.pdb')
+    # rename_pdb4antechamber(f'{mol2}.pdb', f'{mol2}_fix.pdb')
+    #run(f'gmx editconf -f {mol2}.pdb -resnr 1 -o {mol2}.pdb')
+    try:
+        run(f'obabel {mol2}.pdb -O {mol2}_obabel.mol2')
+    except:
+        sys.exit("obabel not installed. This is required for using the --antechamber option! Run 'sudo apt install openbabel' to continue")
+    # run(f'sed -i "s/{mol2}.pdb/{mol2}/" {mol2}_obabel.mol2')
+    # run(f'sed -i "s/{mol2}1/{mol2} /" {mol2}_obabel.mol2')
+    run(f"$AMBERHOME/bin/antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
+    run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {mol2}.mol2 -f mol2 -o {mol2}.frcmod")
     run(f'/bin/rm -f ANTECH* ATOMTYP* sqm.*')
-    tleap_ante = f"source leaprc.gaff2 \\n{res} = loadMol2 {res}.mol2 \\nloadAmberParams {res}.frcmod\\n"
+    tleap_ante = f"source leaprc.gaff2 \\n{mol2} = loadMol2 {mol2}.mol2 \\nloadAmberParams {mol2}.frcmod\\n"
     run(f'sed -i "1s/^/{tleap_ante}/" tleap.in')
     run(f'sed -i "1s/^/{tleap_ante}/" tleap_solv.in')
 
@@ -270,7 +446,7 @@ def main():
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     parser.add_argument('--antechamber', default=False, help='Option to use antechamber to parameterise ligands')
     parser.add_argument('--mol2', default=None, help='Mol2 filename (without extension) to specify the ligand to be parameterised')
-    parser.add_argument('--nc', default=0, help='Net charge of ligand')
+    parser.add_argument('--nc', default=None, help='Net charge of ligand')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
     group.add_argument('--protlist', type=str, help='Residue list file for direct protonation changes')
@@ -291,9 +467,18 @@ def main():
     pdb = Path(args.input)
     base = pdb.stem
 
-    # 0. Add TERs and rename chains
-    out_ter_rename_chains = pdb.with_name(base + '_breaks.pdb')
-    add_ter_rename_chains(pdb, out_ter_rename_chains)
+    if args.antechamber:
+        out_renamedligandatoms = pdb.with_name(base + '_renameligandatoms.pdb')
+        rename_pdb4antechamber(pdb, out_renamedligandatoms, include_resnames=args.mol2)
+        # 0. Add TERs and rename chains
+        out_ter_rename_chains = pdb.with_name(base + '_breaks.pdb')
+        add_ter_rename_chains(out_renamedligandatoms, out_ter_rename_chains)
+    else:
+        # 0. Add TERs and rename chains
+        out_ter_rename_chains = pdb.with_name(base + '_breaks.pdb')
+        add_ter_rename_chains(pdb, out_ter_rename_chains)
+
+
 
 
     # 1. Add caps
@@ -428,7 +613,7 @@ def main():
 
     # 10.a Run antechamber
     if args.antechamber:
-        antechamber(mol2=args.mol2, nc=args.nc)
+        antechamber(mol2=args.mol2, nc=args.nc, input_pdb=str(out_renamedligandatoms))
 
     leap = auto_detect_types(water_model=args.water)
     run(f"sed -i '1s/^/{leap}/' tleap.in")
@@ -496,11 +681,19 @@ def main():
     # 12. Resolvate
     run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc}')
     if args.replicas == 1:
-        run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+        if args.mol2 is None:
+            run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+        else:
+            run(f'python Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
+
     else:
         for rep in range(1, args.replicas + 1):
             os.chdir(f'r{rep}')
-            run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+            if args.mol2 is None:
+                run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+            else:
+                run(f'python Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
+
             os.chdir("..")
 
     total_time = time.time() - start_time
