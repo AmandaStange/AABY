@@ -18,7 +18,7 @@ def run(cmd, shell=True, check=True):
     subprocess.run(cmd, shell=shell, check=check)
 
 def add_ter_rename_chains(pdb, out_ter_rename_chains):
-    
+
     run(f"gmx editconf -f {pdb} -o {str(pdb).split('.')[0]}_gmx.pdb")
     with open(f'{str(pdb).split('.')[0]}_gmx.pdb') as f:
         lines = f.readlines()
@@ -89,7 +89,7 @@ def add_ter_rename_chains(pdb, out_ter_rename_chains):
             new_lines += line
     with open(out_ter_rename_chains, "w") as f:
         f.write("".join(new_lines))
-    
+
 
 
 
@@ -180,7 +180,7 @@ def auto_detect_types(water_model='OPC'):
         lines = f.readlines()
 
     resnames = []
-    
+
     ff_types = []
 
     for line in lines:
@@ -222,7 +222,7 @@ def auto_detect_types(water_model='OPC'):
         leaprc += f'source leaprc.{forcefields[ff_type]}\\n'
 
     leaprc += f'source leaprc.{forcefields['water'][water_model.upper()]}\\n'
-            
+
     return leaprc
 
 def substitute_protein_pdb(args_list, protein_pdb):
@@ -268,7 +268,7 @@ def format_pdb_atom_name(name, element):
         return name.ljust(4)[:4]      # 2-letter element -> left-justified
     else:
         return name.rjust(4)[-4:]      # 1-letter element -> right-justified
-        
+
 def rename_pdb4antechamber(
     inp, outp, cap=4, include_resnames=None, case_insensitive=True,
     renumber=False, renumber_start=1, update_conect=False
@@ -433,7 +433,7 @@ def antechamber(mol2=None, nc=None, input_pdb=None):
     run(f'sed -i "1s/^/{tleap_ante}/" tleap.in')
     run(f'sed -i "1s/^/{tleap_ante}/" tleap_solv.in')
 
-    
+
 
 def main():
     parser = argparse.ArgumentParser(description="AABY: End-to-end AMBER system builder from PDB")
@@ -653,20 +653,20 @@ def main():
         for line in lines[-difference_lines:]:
             inserted_lines.append(line)
 
-    
+
 
     with open(f"input4amber.pdb", "r") as f:
         og_lines = f.readlines()
         original_length = len(og_lines)
 
     # print("OG LIENS", og_lines)
-    
+
     with open('input4amber_solv.pdb','w') as f:
         for line in og_lines[:-2]:
-            
+
             f.write(line)
         for line in inserted_lines:
-            
+
             f.write(line)
 
 
