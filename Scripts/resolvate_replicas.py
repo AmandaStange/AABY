@@ -365,7 +365,7 @@ def fix_itp(base):
                         new_lines += line
                         new_lines += line[:10] + f'{correct_residues[chain_idx][res_idx][1]:>4} {residue:<3}' + line[18:]
                     nxt = True
-                    
+
 
                 else:
                     try:
@@ -378,7 +378,7 @@ def fix_itp(base):
                         resid, residue = line[19:31].split()
                         new_lines += line[:19] + f'{correct_residues[chain_idx][res_idx][1]:>4}{residue:>7}' + line[30:]
                         nxt = False
-                
+
             else:
                 if line[:6] == ';   nr':
                     atoms = True
@@ -387,7 +387,7 @@ def fix_itp(base):
 
         with open(f'toppar/{system.split('/')[1]}', 'w') as f:
             f.write(new_lines)
-        
+
 
 def add_ter_rename_chains(base):
 
@@ -557,7 +557,7 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     fix_itp(base)
     run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p topol.top -o pbc.tpr -maxwarn 3")
     #run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
-    run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc res -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole') 
+    run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc res -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
     run(f'gmx editconf -f {base}.gro -o {base}.pdb -label X')
     add_ter_rename_chains(base)
     print(f"[DONE] See {base}.gro, {base}.pdb, and {base}.top for output.")
