@@ -10,6 +10,9 @@ import os
 import shutil
 import yaml
 
+AABY_dir = os.path.join("/home/au555720", "AABY")
+print('AABY directory: ', AABY_dir)
+
 def run(cmd, shell=True, check=True):
     if isinstance(cmd, list):
         print(f"Running: {' '.join(str(x) for x in cmd)}")
@@ -532,11 +535,11 @@ def main():
 
 
     # Copy tleap.in to local working directory
-    tleap_template = Path('Scripts/tleap.in')
+    tleap_template = Path(f'{AABY_dir}/Scripts/tleap.in')
     tleap_local = Path('tleap.in')
     shutil.copy(tleap_template, tleap_local)
 
-    tleap_solv_template = Path('Scripts/tleap_solv.in')
+    tleap_solv_template = Path(f'{AABY_dir}/Scripts/tleap_solv.in')
     tleap_solv_local = Path('tleap_solv.in')
     shutil.copy(tleap_solv_template, tleap_solv_local)
 
@@ -559,7 +562,7 @@ def main():
 
     # 1. Add caps
     out_ace_nme = pdb.with_name(base + '_breaks_ACE_NME.pdb')
-    run(f'python Scripts/add_ace_nme.py {out_ter_rename_chains} {args.chains}')
+    run(f'python {AABY_dir}/Scripts/add_ace_nme.py {out_ter_rename_chains} {args.chains}')
     assert out_ace_nme.exists(), "add_ace_nme failed"
 
     # 2. Renumber
@@ -569,11 +572,11 @@ def main():
 
     # 3. SSBOND handling if requested
     if args.ssbond:
-        run(f'python Scripts/re_ss.py {out_ace_nme}')
+        run(f'python {AABY_dir}/Scripts/re_ss.py {out_ace_nme}')
         ssbonded_pdb = out_ace_nme.with_name(out_renum.stem + '_ssbond.pdb')
         assert ssbonded_pdb.exists(), "re_ss failed"
         working_pdb = ssbonded_pdb
-        run(f'cp Scripts/tleap.in .')
+        run(f'cp {AABY_dir}/Scripts/tleap.in .')
         insert_ssbonds_into_tleap('tleap.in', 'tleap_SSBONDs.txt')
         insert_ssbonds_into_tleap('tleap_solv.in', 'tleap_SSBONDs.txt')
     else:
@@ -592,14 +595,14 @@ def main():
     # 5. Protonation (by pH/pKa or residue list)
     if args.ph is not None:
         pka_file = out_heavy.with_suffix('.pka')
-        run(f'python Scripts/pka.py {out_heavy} {args.ph}')
+        run(f'python {AABY_dir}/Scripts/pka.py {out_heavy} {args.ph}')
         assert pka_file.exists(), "pka calculation failed"
-        run(f'python Scripts/change_prot.py {pka_file} --ph {args.ph} -o mutate_residues.sh')
+        run(f'python {AABY_dir}/Scripts/change_prot.py {pka_file} --ph {args.ph} -o mutate_residues.sh')
         shutil.copy(out_heavy, out_heavy.with_name(out_heavy.stem + '_renamed.pdb'))
         renamed_pdb = out_heavy.with_name(out_heavy.stem + '_renamed.pdb')
         run(f'bash mutate_residues.sh {renamed_pdb}')
     elif args.protlist:
-        run(f'python Scripts/change_prot.py {args.protlist} --list -o mutate_residues.sh')
+        run(f'python {AABY_dir}/Scripts/change_prot.py {args.protlist} --list -o mutate_residues.sh')
         shutil.copy(out_heavy, out_heavy.with_name(out_heavy.stem + '_renamed.pdb'))
         renamed_pdb = out_heavy.with_name(out_heavy.stem + '_renamed.pdb')
         run(f'bash mutate_residues.sh {renamed_pdb}')
@@ -615,7 +618,7 @@ def main():
 
     # 7. Add TER
     ter_pdb = renamed_pdb.with_name(renamed_pdb.stem + '_TER.pdb')
-    run(f'python Scripts/add_ter.py {renamed_pdb} {ter_pdb}')
+    run(f'python {AABY_dir}/Scripts/add_ter.py {renamed_pdb} {ter_pdb}')
     assert ter_pdb.exists(), "add_ter failed"
 
     # Always remove END lines
@@ -648,7 +651,7 @@ def main():
                         coby_args[idx] = coby_args[idx] + f":apl:{apls[arg.split(':')[1]]}:params:Amber"
             for mol in mol_import:
                 coby_args.append('-molecule_import')
-                coby_args.append(f'file:models/{mol}.pdb')
+                coby_args.append(f'file:{AABY_dir}/models/{mol}.pdb')
                 coby_args.append(f'moleculetype:{mol}')
                 coby_args.append('params:Amber')
 
@@ -675,8 +678,8 @@ def main():
         assert coby_pdb.exists(), "COBY membrane build failed"
         # 9. Add TER to COBY, then rename POPC and chains
         make_coby_ter_pdb('COBY.pdb', str(coby_input_pdb), 'COBY_TER.pdb')
-        run(f'python Scripts/renamePOPC.py')
-        run(f'python Scripts/renameChain.py')
+        run(f'python {AABY_dir}/Scripts/renamePOPC.py')
+        run(f'python {AABY_dir}/Scripts/renameChain.py')
         run(f'cp COBY_TER_lipid21_chains.pdb input4amber.pdb')
         # Always add TER after POPC/chain renaming if needed
         # You can re-use the existing add_ter.py for this purpose if needed
@@ -697,7 +700,7 @@ def main():
 
     run('tleap -f tleap.in')
     prmtop, inpcrd, top_file, gro_file, topol = "system.prmtop","system.inpcrd", "system.top", "system.gro", "topol"
-    run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+    run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
     run(f'gmx editconf -f input4amber.pdb -o input4amber.gro; am=$(tail -n 1 input4amber.gro); sm=$(tail -n 1 system.gro); sed -i "s/$sm/$am/" system.gro')
 
 
@@ -707,11 +710,12 @@ def main():
     nr_molecules = 0
     nr_atoms = 0 #'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'
     nr_atoms_water = {'OPC': 4, 'TIP3P': 3, 'TIP4PEW': 4}
-    run(f'gmx insert-molecules -f input4amber_solvX.pdb -ci models/{args.water.lower()}.gro -o input4amber_solv{nr_molecules}.pdb -nmol 1')
+    run(f'gmx insert-molecules -f input4amber_solvX.pdb -ci {AABY_dir}/models/{args.water.lower()}.gro -o input4amber_solv{nr_molecules}.pdb -nmol 1')
     nr_molecules += 1
     nr_atoms += nr_atoms_water[args.water]
     for ion in args.ions.split(','):
-        run(f'sed "s/XX /{ion}/g" models/ion.pdb > models/tmp.pdb')
+        run(f'mkdir -p models')
+        run(f'sed "s/XX /{ion}/g" {AABY_dir}/models/ion.pdb > models/tmp.pdb')
         run(f'gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb -ci models/tmp.pdb -o input4amber_solv{nr_molecules}.pdb -nmol 1')
         nr_molecules += 1
         nr_atoms += 1
@@ -749,29 +753,36 @@ def main():
 
     run('tleap -f tleap_solv.in')
     prmtop, inpcrd, top_file, gro_file, topol = "system_solv.prmtop","system_solv.inpcrd", "system_solv.top", "system_solv.gro", "topol_solv"
-    run(f'python Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+    run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
 
     run(f'grep include topol_solv.top > topol_nowater.top')
     run(f'grep -v include topol.top >> topol_nowater.top')
 
     # 12. Resolvate
-    run(f'python Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc}')
+    run(f'python {AABY_dir}/Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc} --membrane {coby_should_run}')
     if args.replicas == 1:
         if args.mol2 is None:
-            run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+            run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY')
         else:
-            run(f'python Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
+            run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
+        
 
     else:
         for rep in range(1, args.replicas + 1):
             os.chdir(f'r{rep}')
             if args.mol2 is None:
-                run(f'python Scripts/prepare_for_simulations.py {base}_AABY')
+                run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY')
             else:
-                run(f'python Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
+                run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
 
             os.chdir("..")
-
+            
+    if coby_should_run:
+        shutil.copy(f"{AABY_dir}/mdps/MEMBRANE/", "mdps")
+        
+    else:
+        shutil.copy(f"{AABY_dir}/mdps/SOLUTION/", "mdps")
+        
     total_time = time.time() - start_time
     print(f"\n✅ All done. Your system is ready for GROMACS.")
     print(f"Total build time: {total_time:.1f} seconds ({total_time/60:.2f} minutes)")
