@@ -410,6 +410,77 @@ def rename_pdb4antechamber(
     with open(outp, "w") as g:
         g.write("\n".join(final_lines) + ("\n" if final_lines and final_lines[-1] != "" else ""))
 
+def adjust_mol2_charges(input_file, output_file, target_charge):
+    atoms = []
+    in_atom_section = False
+    target_charge = int(target_charge)
+    total_charge = 0.0
+
+    with open(input_file, "r") as f:
+        lines = f.readlines()
+
+    # Parse atoms and charges
+    for i, line in enumerate(lines):
+        if line.strip().startswith("@<TRIPOS>ATOM"):
+            in_atom_section = True
+            continue
+        elif line.strip().startswith("@<TRIPOS>") and in_atom_section:
+            in_atom_section = False
+        if in_atom_section and line.strip():
+            parts = line.split()
+            atom_id, atom_name, x, y, z, atom_type, res_id, res_name, charge = parts[:9]
+            charge = float(charge)
+            atoms.append({
+                "line_index": i,
+                "parts": parts,
+                "charge": charge,
+                "name": atom_name,
+                "type": atom_type.lower()
+            })
+            total_charge += charge
+
+    # Define non-polar hydrogen types (Amber / Antechamber style)
+    nonpolar_H_types = {"ha", "hc", "h1", "h2", "h3"}
+
+    # Select only nonpolar hydrogens
+    nonpolar_H = [a for a in atoms if a["type"] in nonpolar_H_types]
+    if not nonpolar_H:
+        raise ValueError("No nonpolar hydrogens found to distribute charge.")
+
+    # Compute correction
+    diff = target_charge - round(total_charge, 8)
+    correction_per_H = diff / len(nonpolar_H)
+
+    print(f"Original total charge: {total_charge:.8f}")
+    print(f"Target charge: {target_charge}")
+    print(f"Correction needed: {diff:.8f}")
+    print(f"Distributing {correction_per_H:.8f} across {len(nonpolar_H)} nonpolar hydrogens")
+
+    # Apply correction equally
+    for h in nonpolar_H:
+        h["charge"] += correction_per_H
+
+    # Fix drift: adjust last hydrogen to hit exact target
+    corrected_total = sum(a["charge"] for a in atoms)
+    final_diff = target_charge - corrected_total
+    nonpolar_H[-1]["charge"] += final_diff
+
+    # Update atom charge fields with 8 decimals
+    for atom in atoms:
+        atom["parts"][8] = f"{atom['charge']:.8f}"
+        lines[atom["line_index"]] = "{:>7} {:<9} {:>10} {:>10} {:>10} {:<4} {:>5} {:<4} {:>12}\n".format(
+            atom["parts"][0], atom["parts"][1], atom["parts"][2], atom["parts"][3],
+            atom["parts"][4], atom["parts"][5], atom["parts"][6], atom["parts"][7],
+            atom["parts"][8]
+        )
+
+    # Write new mol2
+    with open(output_file, "w") as f:
+        f.writelines(lines)
+
+    final_total = sum(a["charge"] for a in atoms)
+    print(f"Adjusted mol2 written to {output_file}")
+    print(f"Final total charge: {final_total:.8f}")
 
 
 def antechamber(mol2=None, nc=None, input_pdb=None):
@@ -427,6 +498,7 @@ def antechamber(mol2=None, nc=None, input_pdb=None):
     # run(f'sed -i "s/{mol2}.pdb/{mol2}/" {mol2}_obabel.mol2')
     # run(f'sed -i "s/{mol2}1/{mol2} /" {mol2}_obabel.mol2')
     run(f"$AMBERHOME/bin/antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
+    adjust_mol2_charges(f'{mol2}.mol2', f'{mol2}.mol2', nc)
     run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {mol2}.mol2 -f mol2 -o {mol2}.frcmod")
     run(f'/bin/rm -f ANTECH* ATOMTYP* sqm.*')
     tleap_ante = f"source leaprc.gaff2 \\n{mol2} = loadMol2 {mol2}.mol2 \\nloadAmberParams {mol2}.frcmod\\n"
