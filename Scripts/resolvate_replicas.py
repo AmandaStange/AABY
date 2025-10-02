@@ -7,12 +7,13 @@ import os
 import shutil
 import argparse
 
+AABY_dir = os.path.join("/home/au555720", "AABY")
+
 # ---- USER SETTINGS ----
 input_gro = "system.gro"
 input_top = "topol.top"
 input_top = "topol_nowater.top"
-default_mdp = "mdps/step6.0_minimization.mdp"
-min_mdp = "mdps/step5_mini.mdp"
+
 # -----------------------
 
 intermediate_gro = "noions.gro"
@@ -214,7 +215,7 @@ def run_softcore_minimization(input_gro, input_top, min_mdp, output_tpr):
     run(f'gmx mdrun -deffnm membrane -v')
     run(f'unset GMX_MAXCONSTRWARN')
 
-def prepare_once(base="system"):
+def prepare_once(base="system", min_mdp=None):
     #remove_ions_and_water_gro(input_gro, intermediate_gro)
     #remove_ions_and_water_top(input_top, intermediate_top)
     run(f'cp {input_gro} {intermediate_gro}')
@@ -570,13 +571,22 @@ if __name__ == "__main__":
     parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation')
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     parser.add_argument('--Z', default='10', help='Which Z height the box needs')
+    parser.add_argument('--membrane', default=False, help='If there is a membrane in the system')
     args = parser.parse_args()
 
+    if args.membrane:
+        default_mdp = f"{AABY_dir}/mdps/MEMBRANE/step6.0_minimization.mdp"
+        min_mdp = f"{AABY_dir}/mdps/MEMBRANE/step5_mini.mdp"
+
+    else:
+        default_mdp = f"{AABY_dir}/mdps/SOLUTION/step6.0_minimization.mdp"
+        min_mdp = f"{AABY_dir}/mdps/SOLUTION/step5_mini.mdp"
+    
     if args.replicas == 1:
-        prepare_once(base=args.base)
+        prepare_once(base=args.base, min_mdp=min_mdp)
         resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)
     else:
-        prepare_once(base=args.base)
+        prepare_once(base=args.base, min_mdp=min_mdp)
         for i in range(1, args.replicas + 1):
             rdir = f"r{i}"
             os.makedirs(rdir, exist_ok=True)
@@ -584,7 +594,7 @@ if __name__ == "__main__":
             shutil.copy("noions.top", os.path.join(rdir, "noions.top"))
 
             # Copy mdps
-            shutil.copytree("../mdps", os.path.join(rdir, "mdps"), dirs_exist_ok=True)
+            #shutil.copytree("../mdps", os.path.join(rdir, "mdps"), dirs_exist_ok=True)
 
             # Copy toppar (force field includes)
             shutil.copytree("toppar", os.path.join(rdir, "toppar"), dirs_exist_ok=True)
@@ -598,7 +608,7 @@ if __name__ == "__main__":
             print(f"\n[INFO] Running replica {i} in {rdir}")
             os.chdir(rdir)
             try:
-                local_mdp = "mdps/step6.0_minimization.mdp"
-                resolvate_only(base=args.base, mdp=local_mdp, water=args.water, ions=args.ions, conc=args.conc)
+                #local_mdp = "mdps/step6.0_minimization.mdp"default_mdp
+                resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)
             finally:
                 os.chdir("..")
