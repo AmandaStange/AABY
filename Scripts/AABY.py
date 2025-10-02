@@ -9,6 +9,7 @@ import sys
 import os
 import shutil
 import yaml
+from openbabel import openbabel
 
 AABY_dir = os.path.join("/home/au555720", "AABY")
 print('AABY directory: ', AABY_dir)
@@ -497,10 +498,15 @@ def antechamber(mol2=None, nc=None, input_pdb=None, chain=None):
         run(f'grep "{mol2} {chain}" {input_pdb} > {mol2}.pdb')
     # rename_pdb4antechamber(f'{mol2}.pdb', f'{mol2}_fix.pdb')
     #run(f'gmx editconf -f {mol2}.pdb -resnr 1 -o {mol2}.pdb')
-    try:
-        run(f'obabel {mol2}.pdb -O {mol2}_obabel.mol2')
-    except:
-        sys.exit("obabel not installed. This is required for using the --antechamber option! Run 'sudo apt install openbabel' to continue")
+    obConversion = openbabel.OBConversion()
+    obConversion.SetInAndOutFormats("pdb", "mol2")
+    mol = openbabel.OBMol()
+    obConversion.ReadFile(mol, f"{mol2}.pdb")   # Open Babel will uncompress automatically
+    obConversion.WriteFile(mol, f'{mol2}_obabel.mol2')
+    # try:
+    #     run(f'obabel {mol2}.pdb -O {mol2}_obabel.mol2')
+    # except:
+    #     sys.exit("obabel not installed. This is required for using the --antechamber option! Run 'sudo apt install openbabel' to continue")
     # run(f'sed -i "s/{mol2}.pdb/{mol2}/" {mol2}_obabel.mol2')
     # run(f'sed -i "s/{mol2}1/{mol2} /" {mol2}_obabel.mol2')
     run(f"$AMBERHOME/bin/antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
