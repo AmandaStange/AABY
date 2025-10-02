@@ -483,12 +483,15 @@ def adjust_mol2_charges(input_file, output_file, target_charge):
     print(f"Final total charge: {final_total:.8f}")
 
 
-def antechamber(mol2=None, nc=None, input_pdb=None):
+def antechamber(mol2=None, nc=None, input_pdb=None, chain=None):
     if nc is None:
         sys.exit("--nc option is not set. This is required for using the --antechamber option!")
     ## Lines taken from amber_geostad gcif_to_mol2
     #res = mol2.split('_')[0]
-    run(f'grep {mol2} {input_pdb} > {mol2}.pdb')
+    if chain is None:
+        run(f'grep {mol2} {input_pdb} > {mol2}.pdb')
+    else:
+        run(f'grep "{mol2} {chain}" {input_pdb} > {mol2}.pdb')
     # rename_pdb4antechamber(f'{mol2}.pdb', f'{mol2}_fix.pdb')
     #run(f'gmx editconf -f {mol2}.pdb -resnr 1 -o {mol2}.pdb')
     try:
@@ -517,7 +520,8 @@ def main():
     parser.add_argument('--ions', default='Na+,Cl-', help='Which ions to use for solvation (first positive then negative)')
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     parser.add_argument('--antechamber', default=False, help='Option to use antechamber to parameterise ligands')
-    parser.add_argument('--mol2', default=None, help='Mol2 filename (without extension) to specify the ligand to be parameterised')
+    parser.add_argument('--mol2', default=None, help='Name of the ligand to be parameterised')
+    parser.add_argument('--mol2chain', default=None, help='If multiple copies of the same ligand specific chain for first one')
     parser.add_argument('--nc', default=None, help='Net charge of ligand')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
@@ -685,7 +689,7 @@ def main():
 
     # 10.a Run antechamber
     if args.antechamber:
-        antechamber(mol2=args.mol2, nc=args.nc, input_pdb=str(out_renamedligandatoms))
+        antechamber(mol2=args.mol2, nc=args.nc, input_pdb=str(out_renamedligandatoms), chain=args.mol2chain)
 
     leap = auto_detect_types(water_model=args.water)
     run(f"sed -i '1s/^/{leap}/' tleap.in")

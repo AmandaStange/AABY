@@ -11,8 +11,8 @@ import argparse
 input_gro = "system.gro"
 input_top = "topol.top"
 input_top = "topol_nowater.top"
-default_mdp = "../mdps/step6.0_minimization.mdp"
-min_mdp = "../mdps/step5_mini.mdp"
+default_mdp = "mdps/step6.0_minimization.mdp"
+min_mdp = "mdps/step5_mini.mdp"
 # -----------------------
 
 intermediate_gro = "noions.gro"
