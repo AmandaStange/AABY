@@ -386,7 +386,7 @@ def fix_itp(base):
 
                 new_lines += line
 
-        with open(f'toppar/{system.split('/')[1]}', 'w') as f:
+        with open(f"toppar/{system.split('/')[1]}", 'w') as f:
             f.write(new_lines)
 
 
@@ -581,7 +581,7 @@ if __name__ == "__main__":
     else:
         default_mdp = f"{AABY_dir}/mdps/SOLUTION/step6.0_minimization.mdp"
         min_mdp = f"{AABY_dir}/mdps/SOLUTION/step5_mini.mdp"
-    
+
     if args.replicas == 1:
         prepare_once(base=args.base, min_mdp=min_mdp)
         resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)

@@ -6,25 +6,87 @@ import argparse
 import subprocess
 from pathlib import Path
 import sys
+import re
 import os
 import shutil
+import shlex
 import yaml
 from openbabel import openbabel
 
 AABY_dir = os.path.join("/home/au555720", "AABY")
 print('AABY directory: ', AABY_dir)
 
-def run(cmd, shell=True, check=True):
-    if isinstance(cmd, list):
-        print(f"Running: {' '.join(str(x) for x in cmd)}")
+# Global variable for logfile
+LOGFILE = None
+
+
+class Tee:
+    """Duplicate output to console and file(s)."""
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+#def run(cmd, shell=True, check=True):
+#    if isinstance(cmd, list):
+#        print(f"Running: {' '.join(str(x) for x in cmd)}")
+#    else:
+#        print(f"Running: {cmd}")
+#    subprocess.run(cmd, shell=shell, check=check)
+
+
+
+
+
+
+def run(cmd, check=True, shell=None):
+    """Run a shell command or Python script with logging.
+
+    Args:
+        cmd (str | list): Command string or list of arguments.
+        check (bool): Raise error on non-zero exit if True.
+        shell (bool | None):
+            - None → auto-detect (safe default)
+            - True/False → override
+    """
+    global LOGFILE
+
+    # Detect if we need shell
+    if isinstance(cmd, str):
+        if shell is None:
+            # auto-detect dangerous shell operators
+            if re.search(r"[><|;&]", cmd):
+                shell = True
+            else:
+                shell = False
+        cmd_list = cmd if shell else shlex.split(cmd)
     else:
-        print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=shell, check=check)
+        # Already a list
+        cmd_list = list(map(str, cmd))
+        if shell is None:
+            shell = False
+
+    # Pretty print
+    cmd_str = cmd if isinstance(cmd, str) else " ".join(cmd_list)
+    print(f"Running: {cmd_str}")
+
+    if LOGFILE:
+        with open(LOGFILE, "a") as f:
+            subprocess.run(cmd_list, check=check, shell=shell,
+                           stdout=Tee(sys.stdout, f),
+                           stderr=Tee(sys.stderr, f))
+    else:
+        subprocess.run(cmd_list, check=check, shell=shell)
 
 def add_ter_rename_chains(pdb, out_ter_rename_chains):
 
     run(f"gmx editconf -f {pdb} -o {str(pdb).split('.')[0]}_gmx.pdb")
-    with open(f'{str(pdb).split('.')[0]}_gmx.pdb') as f:
+    with open(f"{str(pdb).split('.')[0]}_gmx.pdb") as f:
         lines = f.readlines()
     resids = []
     resids_unique = []
@@ -225,7 +287,7 @@ def auto_detect_types(water_model='OPC'):
     for ff_type in sorted(ff_types, key=lambda x: len(x), reverse=True):
         leaprc += f'source leaprc.{forcefields[ff_type]}\\n'
 
-    leaprc += f'source leaprc.{forcefields['water'][water_model.upper()]}\\n'
+    leaprc += f"source leaprc.{forcefields['water'][water_model.upper()]}\\n"
 
     return leaprc
 
@@ -509,9 +571,11 @@ def antechamber(mol2=None, nc=None, input_pdb=None, chain=None):
     #     sys.exit("obabel not installed. This is required for using the --antechamber option! Run 'sudo apt install openbabel' to continue")
     # run(f'sed -i "s/{mol2}.pdb/{mol2}/" {mol2}_obabel.mol2')
     # run(f'sed -i "s/{mol2}1/{mol2} /" {mol2}_obabel.mol2')
-    run(f"$AMBERHOME/bin/antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
+    #run(f"$AMBERHOME/bin/antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c abcg2 -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
+    run(f"antechamber -i {mol2}_obabel.mol2 -fi mol2 -o {mol2}.mol2 -fo mol2 -bk comp_{mol2} -s 0 -dr no -nc {nc} -at gaff2 -c bcc -ek 'qm_theory=\"AM1\", maxcyc=1000, ndiis_attempts=700,'")
     adjust_mol2_charges(f'{mol2}.mol2', f'{mol2}.mol2', nc)
-    run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {mol2}.mol2 -f mol2 -o {mol2}.frcmod")
+    #run(f"$AMBERHOME/bin/parmchk2 -s 2 -i {mol2}.mol2 -f mol2 -o {mol2}.frcmod")
+    run(f"parmchk2 -s 2 -i {mol2}.mol2 -f mol2 -o {mol2}.frcmod")
     run(f'/bin/rm -f ANTECH* ATOMTYP* sqm.*')
     tleap_ante = f"source leaprc.gaff2 \\n{mol2} = loadMol2 {mol2}.mol2 \\nloadAmberParams {mol2}.frcmod\\n"
     run(f'sed -i "1s/^/{tleap_ante}/" tleap.in')
@@ -520,6 +584,7 @@ def antechamber(mol2=None, nc=None, input_pdb=None, chain=None):
 
 
 def main():
+    global LOGFILE
     parser = argparse.ArgumentParser(description="AABY: End-to-end AMBER system builder from PDB")
     parser.add_argument('-f', '--input', required=True, help='Input PDB file')
     parser.add_argument('--chains', default="A", help='Comma-separated list of protein chains for ACE/NME')
@@ -532,6 +597,7 @@ def main():
     parser.add_argument('--mol2', default=None, help='Name of the ligand to be parameterised')
     parser.add_argument('--mol2chain', default=None, help='If multiple copies of the same ligand specific chain for first one')
     parser.add_argument('--nc', default=None, help='Net charge of ligand')
+    parser.add_argument('--log', nargs='?', const="AABY.log", help='Write all terminal output to a log file (default: AABY.log)')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
     group.add_argument('--protlist', type=str, help='Residue list file for direct protonation changes')
@@ -539,6 +605,12 @@ def main():
     parser.add_argument('--coby-args', nargs=argparse.REMAINDER, help='Arguments passed directly to COBY after this flag (use {protein_pdb} as placeholder)')
     args = parser.parse_args()
 
+    # Setup logging if requested
+    if args.log:
+        LOGFILE = args.log
+        logfile = open(LOGFILE, "w")
+        sys.stdout = Tee(sys.stdout, logfile)
+        sys.stderr = Tee(sys.stderr, logfile)
 
     # Copy tleap.in to local working directory
     tleap_template = Path(f'{AABY_dir}/Scripts/tleap.in')
@@ -679,7 +751,7 @@ def main():
         else:
             coby_args = substitute_protein_pdb(args.coby_args, coby_input_pdb)
             coby_cmd = ["python3", "-m", "COBY"] + coby_args
-        run(coby_cmd, shell=False)
+        run(coby_cmd)
         coby_pdb = Path('COBY.pdb')
         assert coby_pdb.exists(), "COBY membrane build failed"
         # 9. Add TER to COBY, then rename POPC and chains
@@ -771,7 +843,7 @@ def main():
             run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY')
         else:
             run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
-        
+
 
     else:
         for rep in range(1, args.replicas + 1):
@@ -782,13 +854,13 @@ def main():
                 run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
 
             os.chdir("..")
-            
+
     if coby_should_run:
-        shutil.copy(f"{AABY_dir}/mdps/MEMBRANE/", "mdps")
-        
+        shutil.copytree(f"{AABY_dir}/mdps/MEMBRANE/", "mdps")
+
     else:
-        shutil.copy(f"{AABY_dir}/mdps/SOLUTION/", "mdps")
-        
+        shutil.copytree(f"{AABY_dir}/mdps/SOLUTION/", "mdps")
+
     total_time = time.time() - start_time
     print(f"\n✅ All done. Your system is ready for GROMACS.")
     print(f"Total build time: {total_time:.1f} seconds ({total_time/60:.2f} minutes)")

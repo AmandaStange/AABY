@@ -2,10 +2,13 @@ name: aaby
 channels:
   - conda-forge
 dependencies:
-  - python>=3.8
+  - python==3.11
   - pyyaml
   - ambertools
   - openbabel
+  - parmed
+  - propka
+  - numpy<1.24
   - pip
   - pip:
-      - importlib_resources
+      - COBY==1.0.5
