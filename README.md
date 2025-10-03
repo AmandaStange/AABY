@@ -16,5 +16,7 @@ Example:
 ```
 python Scripts/AABY.py -f INPUT.pdb --chains A --ph 7.4 --coby-yaml coby_input.yaml --antechamber True --mol2 UNK --nc 0
 ```
-    
-
+For help use
+```
+python Scripts/AABY.py -h
+```
