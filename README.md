@@ -1,6 +1,6 @@
 # AABY
 
-Automated AMBER System Builder Workflow
+Automated AMBER System Builder
 
 ## Installation
 ```
