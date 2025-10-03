@@ -20,3 +20,17 @@ For help use
 ```
 python Scripts/AABY.py -h
 ```
+
+Example of input coby file (coby_input.yaml)
+```
+- -box
+- 15
+- 15
+- 15
+- -membrane
+- lipid:POPC:6
+- lipid:CHL:4
+- -protein
+- file:{protein_pdb}
+- charge:0
+```
