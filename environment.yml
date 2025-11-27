@@ -11,4 +11,4 @@ dependencies:
   - numpy<1.24
   - pip
   - pip:
-      - COBY==1.0.5
+      - COBY==1.0.11
