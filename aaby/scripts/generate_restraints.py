@@ -16,7 +16,7 @@ MDPS_DIR = RESOURCES_DIR / "mdps"
 
 
 
-def gen_rest(path, itp):
+def gen_rest(path, itp, mol2=None):
     with open(path + itp) as f:
         lines = f.readlines()
 
@@ -75,14 +75,38 @@ def gen_rest(path, itp):
         with open(path + itp, 'a') as f:
             f.write(restraint)
 
-def main():
+    elif mol2 in itp:
+        atoms = False
+        res_BB = []
+        res_SC = []
+        for line in lines:
+            if atoms and line[0] != ';':
+                if line == '\n':
+                    break
+                l = line.split()
+                if l[4][0] != 'H':
+                    # print(line, end='')
+                    res_BB.append([l[0], l[4]])
+
+            if '[ atoms ]' in line:
+                atoms = True
+        restraint = ''
+        restraint += '#ifdef POSRES\n'
+        restraint +='[ position_restraints ]\n'
+        for i in res_BB:
+            restraint += f'{i[0]:>5}     1     POSRES_FC_BB    POSRES_FC_BB    POSRES_FC_BB\n'
+        restraint += '#endif\n'
+        with open(path + itp, 'a') as f:
+            f.write(restraint)
+
+def main(mol2=None):
     path = 'toppar/'
     itps = os.listdir(path)
     for itp in itps:
-        gen_rest(path, itp)
+        gen_rest(path, itp, mol2)
     print(f"[DONE] Restraints added to itp files")
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1])
 
     
