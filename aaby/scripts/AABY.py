@@ -992,6 +992,7 @@ def main():
         "--water", args.water,
         "--ions", args.ions,
         "--conc", str(args.conc),
+        "--mol2", args.mol2,
     ]
 
     if coby_should_run:
