@@ -1,4 +1,4 @@
-name: aaby
+name: AABY
 channels:
   - conda-forge
 dependencies:
@@ -11,4 +11,5 @@ dependencies:
   - numpy<1.24
   - pip
   - pip:
+      - AABY==0.1.0
       - COBY==1.0.11

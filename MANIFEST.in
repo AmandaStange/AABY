@@ -1,1 +1,3 @@
 include aaby/data/tleap.in
+recursive-include aaby/resources *
+
