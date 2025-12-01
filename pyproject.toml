@@ -4,19 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AABY"
-version = "0.1.0"
+version = "0.1.1"
 description = "End-to-end AMBER system builder from PDB"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
   { name = "Amanda Dyrholm Stange" }
-]
-# you can list runtime deps or let conda handle them; either is fine
-dependencies = [
-  "pyyaml",
-  "openbabel",
-  "parmed",
-  "propka",
 ]
 
 [project.scripts]
