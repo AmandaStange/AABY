@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AABY"
-version = "0.1.1"
+version = "0.1.2"
 description = "End-to-end AMBER system builder from PDB"
 readme = "README.md"
 requires-python = ">=3.11"
