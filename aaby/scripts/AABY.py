@@ -844,6 +844,7 @@ def main():
                 if isinstance(arg, str):
                     if arg == "-membrane":
                         coby_args.insert(idx + 1, 'optimize_run:False')
+                        coby_args.insert(idx + 1, 'grid_maker_grouping_algorithm:no_groups')
                     if arg.split(':')[0] == 'lipid':
                         mol_import.append(arg.split(':')[1])
                         coby_args[idx] = coby_args[idx] + f":apl:{apls[arg.split(':')[1]]}:params:Amber"
