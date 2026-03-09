@@ -2,7 +2,7 @@
 
 # setup(
 #     name="aaby",
-#     version="0.1.0",
+#     version="0.1.4",
 #     description="Automated AMBER System Builder Workflow",
 #     author="Your Name",
 #     packages=find_packages(),
@@ -22,7 +22,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="aaby",
-    version="0.1.2",
+    version="0.1.4",
     description="Automated AMBER System Builder Workflow",
     author="Amanda D. Stange",
     packages=find_packages(),
