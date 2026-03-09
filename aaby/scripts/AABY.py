@@ -951,7 +951,7 @@ def main():
     # with open(f"input4amber_solvX.pdb", "rb") as f:
     #     before_insert = sum(1 for _ in f)
 
-    difference_lines = nr_atoms + 2
+    difference_lines = nr_atoms + 3 ## CHANGED FROM 2
     inserted_lines = []
     with open(f"input4amber_solv{nr_molecules-1}.pdb", "r") as f:
         lines = f.readlines()
@@ -1007,7 +1007,7 @@ def main():
         else:
             #run(f'python {AABY_dir}/Scripts/prepare_for_simulations.py {base}_AABY {args.mol2}')
             run([sys.executable, "-m", "aaby.scripts.prepare_for_simulations", f"{base}_AABY", args.mol2])
-        
+
 
 
     else:
