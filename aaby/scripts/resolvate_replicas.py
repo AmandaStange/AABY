@@ -66,13 +66,16 @@ def remove_ions_and_water_gro(input_gro, output_gro, remove_resnames=None):
     with open(output_gro, "w") as f:
         f.writelines(new_lines)
 
-def resize_box(input_gro, output_gro):
-    z_length = float(run(f"tail -1 {input_gro} | awk '{{print $3}}'", return_output=True).strip())
-    run(f'gmx editconf -f {input_gro} -d -.15 -o {output_gro}')
-    new_z_length = float(run(f"tail -1 {output_gro} | awk '{{print $3}}'", return_output=True).strip())
-    last_line_nr = int(run(f"wc -l {output_gro} | awk '{{print $1}}'", return_output=True).strip())
-    run(f'sed -i "{last_line_nr}s/{new_z_length}.*/{z_length}/" {output_gro}')
-    run(f'gmx editconf -f {output_gro} -c -o {output_gro}')
+def resize_box(input_gro, output_gro, bt='dodecahedron', d=1.2, membrane=True):
+    if membrane:
+        z_length = float(run(f"tail -1 {input_gro} | awk '{{print $3}}'", return_output=True).strip())
+        run(f'gmx editconf -f {input_gro} -d -.15 -o {output_gro}')
+        new_z_length = float(run(f"tail -1 {output_gro} | awk '{{print $3}}'", return_output=True).strip())
+        last_line_nr = int(run(f"wc -l {output_gro} | awk '{{print $1}}'", return_output=True).strip())
+        run(f'sed -i "{last_line_nr}s/{new_z_length}.*/{z_length}/" {output_gro}')
+        run(f'gmx editconf -f {output_gro} -c -o {output_gro}')
+    else:
+        run(f'gmx editconf -f {input_gro} -bt {bt} -d {d} -c -o {output_gro}')
 
 def remove_ions_and_water_top(input_top, output_top, remove_resnames=None):
     if remove_resnames is None:
@@ -222,12 +225,12 @@ def run_softcore_minimization(input_gro, input_top, min_mdp, output_tpr):
     run(f'gmx mdrun -deffnm membrane -v')
     run(f'unset GMX_MAXCONSTRWARN')
 
-def prepare_once(base="system", min_mdp=None):
+def prepare_once(base="system", min_mdp=None, bt='dodecahedron', d=1.2, membrane=True):
     #remove_ions_and_water_gro(input_gro, intermediate_gro)
     #remove_ions_and_water_top(input_top, intermediate_top)
     run(f'cp {input_gro} {intermediate_gro}')
     run(f'cp {input_top} {intermediate_top}')
-    resize_box(intermediate_gro, resized_gro)
+    resize_box(intermediate_gro, resized_gro, bt, d, membrane)
     run_softcore_minimization(resized_gro, intermediate_top, min_mdp, "softcore.tpr")
     print("[INFO] Preparation done. membrane.gro and noions.top ready.")
 
@@ -547,13 +550,17 @@ def add_ter_rename_chains(base):
         f.write(''.join(out))
 
 
-def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Na+,Cl-", conc="0.15"):
+def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OPC', ions="Na+,Cl-", conc="0.15", membrane=True):
     water_type = {'OPC': 'tip4p', 'TIP3P': 'spc216', 'TIP4PEW': 'tip4p'}
     run(f"gmx solvate -cp membrane.gro -cs {water_type[water.upper()]}.gro -o {resolvated_gro} -p noions.top") ## change water model to user specified
-    minz, maxz = get_pc_n31_box(resolvated_gro)
-    remove_sol_in_zrange(resolvated_gro, cleaned_gro, minz, maxz)
-    num_sol = count_sol_molecules(cleaned_gro)
-    update_sol_count_top("noions.top", cleaned_top, num_sol)
+    if membrane:
+        minz, maxz = get_pc_n31_box(resolvated_gro)
+        remove_sol_in_zrange(resolvated_gro, cleaned_gro, minz, maxz)
+        num_sol = count_sol_molecules(cleaned_gro)
+        update_sol_count_top("noions.top", cleaned_top, num_sol)
+    else:
+            shutil.copy(resolvated_gro, cleaned_gro)
+            shutil.copy("noions.top", cleaned_top)
     rename_sol_to_wat_gro(cleaned_gro, gro_wat)
     rename_sol_to_wat_top(cleaned_top, top_wat)
     make_ndx_for_wat(gro_wat, ndx)
@@ -566,7 +573,10 @@ def resolvate_only(base="system", mdp="mdps/step6.0_minimization.mdp", water='OP
     run(' '.join([sys.executable, "-m", "aaby.scripts.generate_restraints", args.mol2]))
     run(f"gmx grompp -f {mdp} -r {base}.gro -c {base}.gro -p topol.top -o pbc.tpr -maxwarn 3")
     #run(f'echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
-    run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc res -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
+    if membrane:
+        run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc res -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
+    else:
+        run(f'echo 1 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc mol -ur compact -center; echo 0 | gmx trjconv -f {base}.gro -s pbc.tpr -o {base}.gro -pbc whole')
     run(f'gmx editconf -f {base}.gro -o {base}.pdb -label X')
     add_ter_rename_chains(base)
     print(f"[DONE] See {base}.gro, {base}.pdb, and {base}.top for output.")
@@ -580,6 +590,8 @@ if __name__ == "__main__":
     parser.add_argument('--conc', default='0.15', help='Which ion concentration to build')
     parser.add_argument('--Z', default='10', help='Which Z height the box needs')
     parser.add_argument('--mol2', default=None, help='Is there a ligand in the system')
+    parser.add_argument('--bt', default='dodecahedron', help='If no membrane detected, which box type to use for solvation (default: dodecahedron)')
+    parser.add_argument('--d', default='1.2', help='If no membrane detected, minimum distance (in nm) between solute and box edge for solvation (default: 1.2)')
     # parser.add_argument('--membrane', default=False, help='If there is a membrane in the system')
     parser.add_argument('--membrane',action='store_true',help='If there is a membrane in the system')
     args = parser.parse_args()
@@ -595,11 +607,11 @@ if __name__ == "__main__":
     min_mdp     = str(min_mdp_path)
 
     if args.replicas == 1:
-        prepare_once(base=args.base, min_mdp=min_mdp)
-        resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)
+        prepare_once(base=args.base, min_mdp=min_mdp, bt=args.bt, d=args.d, membrane=args.membrane)
+        resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc, membrane=args.membrane)
 
     else:
-        prepare_once(base=args.base, min_mdp=min_mdp)
+        prepare_once(base=args.base, min_mdp=min_mdp, bt=args.bt, d=args.d, membrane=args.membrane)
         for i in range(1, args.replicas + 1):
             rdir = f"r{i}"
             os.makedirs(rdir, exist_ok=True)
@@ -622,6 +634,6 @@ if __name__ == "__main__":
             os.chdir(rdir)
             try:
                 #local_mdp = "mdps/step6.0_minimization.mdp"default_mdp
-                resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc)
+                resolvate_only(base=args.base, mdp=default_mdp, water=args.water, ions=args.ions, conc=args.conc, membrane=args.membrane)
             finally:
                 os.chdir("..")
