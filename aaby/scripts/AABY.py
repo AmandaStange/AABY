@@ -660,6 +660,8 @@ def main():
     parser.add_argument('--mol2', default=None, help='Name of the ligand to be parameterised')
     parser.add_argument('--mol2chain', default=None, help='If multiple copies of the same ligand specific chain for first one')
     parser.add_argument('--nc', default=None, help='Net charge of ligand')
+    parser.add_argument('--bt', default='dodecahedron', help='If no membrane detected, which box type to use for solvation (default: dodecahedron)')
+    parser.add_argument('--d', default='1.2', help='If no membrane detected, minimum distance (in nm) between solute and box edge for solvation (default: 1.2)')
     parser.add_argument('--log', nargs='?', const="AABY.log", help='Write all terminal output to a log file (default: AABY.log)')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--ph', type=float, help='pH for propka (protonation by predicted pKa)')
@@ -994,6 +996,8 @@ def main():
         "--ions", args.ions,
         "--conc", str(args.conc),
         "--mol2", args.mol2,
+        "--bt", args.bt,
+        "--d", args.d,
     ]
 
     if coby_should_run:
