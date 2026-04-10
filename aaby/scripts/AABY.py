@@ -143,7 +143,35 @@ def run(cmd, check=True, shell=None):
         return result
     else:
         # No logging: just run normally, inherit parent stdout/stderr
-        return subprocess.run(cmd_list, check=check, shell=shell)
+        #return subprocess.run(cmd_list, check=check, shell=shell)
+        return subprocess.run(
+                            cmd_list,
+                            check=check,
+                            shell=shell,
+                            text=True,
+                            capture_output=True,
+                        )
+
+
+
+def get_gmx_version():
+    result = run("gmx -version", check=True)
+    output = result.stdout
+
+    match = re.search(r"GROMACS version:\s+(\d+)\.(\d+)", output)
+    if not match:
+        raise RuntimeError("Could not parse GROMACS version")
+
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    return major, minor
+
+
+def gmx_version_at_least(major_req, minor_req=0):
+    major, minor = get_gmx_version()
+    return (major, minor) >= (major_req, minor_req)
+
+
 
 def add_ter_rename_chains(pdb, out_ter_rename_chains):
 
@@ -897,94 +925,100 @@ def main():
     if args.antechamber:
         antechamber(mol2=args.mol2, nc=args.nc, input_pdb=str(out_renamedligandatoms), chain=args.mol2chain)
 
-    leap = auto_detect_types(water_model=args.water)
-    run(f"sed -i '1s/^/{leap}/' tleap.in")
-    run(f"sed -i '1s/^/{leap}/' tleap_solv.in")
+    if not gmx_version_at_least(2026):
+        leap = auto_detect_types(water_model=args.water)
+        run(f"sed -i '1s/^/{leap}/' tleap.in")
+        run(f"sed -i '1s/^/{leap}/' tleap_solv.in")
 
-    run('tleap -f tleap.in')
-    prmtop, inpcrd, top_file, gro_file, topol = "system.prmtop","system.inpcrd", "system.top", "system.gro", "topol"
-    #run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
-    run([sys.executable, "-m", "aaby.scripts.convert_and_split", prmtop, inpcrd, top_file, gro_file, topol])
-    run(f'gmx editconf -f input4amber.pdb -o input4amber.gro; am=$(tail -n 1 input4amber.gro); sm=$(tail -n 1 system.gro); sed -i "s/$sm/$am/" system.gro')
+        run('tleap -f tleap.in')
+        prmtop, inpcrd, top_file, gro_file, topol = "system.prmtop","system.inpcrd", "system.top", "system.gro", "topol"
+        #run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+        run([sys.executable, "-m", "aaby.scripts.convert_and_split", prmtop, inpcrd, top_file, gro_file, topol])
+        run(f'gmx editconf -f input4amber.pdb -o input4amber.gro; am=$(tail -n 1 input4amber.gro); sm=$(tail -n 1 system.gro); sed -i "s/$sm/$am/" system.gro')
 
 
-    # 11. Create topology that includes solvent
-    ## instert water and ions insert-molecules
-    run('gmx editconf -f input4amber.pdb -o input4amber_solvX.pdb')
-    nr_molecules = 0
-    nr_atoms = 0 #'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'
-    nr_atoms_water = {'OPC': 4, 'TIP3P': 3, 'TIP4PEW': 4}
-    #run(f'gmx insert-molecules -f input4amber_solvX.pdb -ci {AABY_dir}/models/{args.water.lower()}.gro -o input4amber_solv{nr_molecules}.pdb -nmol 1')
-    water_model_path = MODELS_DIR / f"{args.water.lower()}.gro"
-    run(
-        f"gmx insert-molecules -f input4amber_solvX.pdb "
-        f"-ci {water_model_path} "
-        f"-o input4amber_solv{nr_molecules}.pdb -nmol 1"
-    )
-    nr_molecules += 1
-    nr_atoms += nr_atoms_water[args.water]
-    # for ion in args.ions.split(','):
-    #     run(f'mkdir -p models')
-    #     run(f'sed "s/XX /{ion}/g" {AABY_dir}/models/ion.pdb > models/tmp.pdb')
-    #     run(f'gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb -ci models/tmp.pdb -o input4amber_solv{nr_molecules}.pdb -nmol 1')
-    #     nr_molecules += 1
-    #     nr_atoms += 1
-    for ion in args.ions.split(','):
-        # run("mkdir -p models")
-        ion_template = MODELS_DIR / "ion.pdb"
-        # run(f'sed "s/XX /{ion}/g" {ion_template} > models/tmp.pdb')
-        run(f'sed "s/XX /{ion}/g" {ion_template} > tmp.pdb')
-        # run(
-        #     f"gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb "
-        #     f"-ci models/tmp.pdb "
-        #     f"-o input4amber_solv{nr_molecules}.pdb -nmol 1"
-        # )
+        # 11. Create topology that includes solvent
+        ## instert water and ions insert-molecules
+        run('gmx editconf -f input4amber.pdb -o input4amber_solvX.pdb')
+        nr_molecules = 0
+        nr_atoms = 0 #'OPC': 'water.opc', 'TIP3P': 'water.tip3p', 'TIP4PEW': 'water.tip4pew'
+        nr_atoms_water = {'OPC': 4, 'TIP3P': 3, 'TIP4PEW': 4}
+        #run(f'gmx insert-molecules -f input4amber_solvX.pdb -ci {AABY_dir}/models/{args.water.lower()}.gro -o input4amber_solv{nr_molecules}.pdb -nmol 1')
+        water_model_path = MODELS_DIR / f"{args.water.lower()}.gro"
         run(
-            f"gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb "
-            f"-ci tmp.pdb "
+            f"gmx insert-molecules -f input4amber_solvX.pdb "
+            f"-ci {water_model_path} "
             f"-o input4amber_solv{nr_molecules}.pdb -nmol 1"
         )
         nr_molecules += 1
-        nr_atoms += 1
+        nr_atoms += nr_atoms_water[args.water]
+        # for ion in args.ions.split(','):
+        #     run(f'mkdir -p models')
+        #     run(f'sed "s/XX /{ion}/g" {AABY_dir}/models/ion.pdb > models/tmp.pdb')
+        #     run(f'gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb -ci models/tmp.pdb -o input4amber_solv{nr_molecules}.pdb -nmol 1')
+        #     nr_molecules += 1
+        #     nr_atoms += 1
+        for ion in args.ions.split(','):
+            # run("mkdir -p models")
+            ion_template = MODELS_DIR / "ion.pdb"
+            # run(f'sed "s/XX /{ion}/g" {ion_template} > models/tmp.pdb')
+            run(f'sed "s/XX /{ion}/g" {ion_template} > tmp.pdb')
+            # run(
+            #     f"gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb "
+            #     f"-ci models/tmp.pdb "
+            #     f"-o input4amber_solv{nr_molecules}.pdb -nmol 1"
+            # )
+            run(
+                f"gmx insert-molecules -f input4amber_solv{nr_molecules-1}.pdb "
+                f"-ci tmp.pdb "
+                f"-o input4amber_solv{nr_molecules}.pdb -nmol 1"
+            )
+            nr_molecules += 1
+            nr_atoms += 1
 
-    # with open(f"input4amber_solv{nr_molecules-1}.pdb", "rb") as f:
-    #     after_insert = sum(1 for _ in f)
+        # with open(f"input4amber_solv{nr_molecules-1}.pdb", "rb") as f:
+        #     after_insert = sum(1 for _ in f)
 
-    # with open(f"input4amber_solvX.pdb", "rb") as f:
-    #     before_insert = sum(1 for _ in f)
+        # with open(f"input4amber_solvX.pdb", "rb") as f:
+        #     before_insert = sum(1 for _ in f)
 
-    difference_lines = nr_atoms + 3 ## CHANGED FROM 2
-    inserted_lines = []
-    with open(f"input4amber_solv{nr_molecules-1}.pdb", "r") as f:
-        lines = f.readlines()
-        for line in lines[-difference_lines:]:
-            inserted_lines.append(line)
-
-
-
-    with open(f"input4amber.pdb", "r") as f:
-        og_lines = f.readlines()
-        original_length = len(og_lines)
-
-    # print("OG LIENS", og_lines)
-
-    with open('input4amber_solv.pdb','w') as f:
-        for line in og_lines[:-2]:
-
-            f.write(line)
-        for line in inserted_lines:
-
-            f.write(line)
+        difference_lines = nr_atoms + 3 ## CHANGED FROM 2
+        inserted_lines = []
+        with open(f"input4amber_solv{nr_molecules-1}.pdb", "r") as f:
+            lines = f.readlines()
+            for line in lines[-difference_lines:]:
+                inserted_lines.append(line)
 
 
 
-    run('tleap -f tleap_solv.in')
-    prmtop, inpcrd, top_file, gro_file, topol = "system_solv.prmtop","system_solv.inpcrd", "system_solv.top", "system_solv.gro", "topol_solv"
-    #run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
-    run([sys.executable, "-m", "aaby.scripts.convert_and_split", prmtop, inpcrd, top_file, gro_file, topol])
+        with open(f"input4amber.pdb", "r") as f:
+            og_lines = f.readlines()
+            original_length = len(og_lines)
 
-    run(f'grep include topol_solv.top > topol_nowater.top')
-    run(f'grep -v include topol.top >> topol_nowater.top')
+        # print("OG LIENS", og_lines)
+
+        with open('input4amber_solv.pdb','w') as f:
+            for line in og_lines[:-2]:
+
+                f.write(line)
+            for line in inserted_lines:
+
+                f.write(line)
+
+
+
+        run('tleap -f tleap_solv.in')
+        prmtop, inpcrd, top_file, gro_file, topol = "system_solv.prmtop","system_solv.inpcrd", "system_solv.top", "system_solv.gro", "topol_solv"
+        #run(f'python {AABY_dir}/Scripts/convert_and_split.py {prmtop} {inpcrd} {top_file} {gro_file} {topol}')
+        run([sys.executable, "-m", "aaby.scripts.convert_and_split", prmtop, inpcrd, top_file, gro_file, topol])
+
+        run(f'grep include topol_solv.top > topol_nowater.top')
+        run(f'grep -v include topol.top >> topol_nowater.top')
+    else:
+        run([sys.executable, "-m", "aaby.scripts.run_pdb2gmx", args.ssbond])
+
+
+
 
     # 12. Resolvate
     #run(f'python {AABY_dir}/Scripts/resolvate_replicas.py --base {base}_AABY --replicas {args.replicas} --water {args.water} --ions {args.ions} --conc {args.conc} --membrane {coby_should_run}')
