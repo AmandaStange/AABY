@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: AABY
-Version: 0.1.4
+Version: 0.1.5
 Summary: End-to-end AMBER system builder from PDB
 Author: Amanda Dyrholm Stange
 Requires-Python: >=3.11
