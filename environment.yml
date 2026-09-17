@@ -12,4 +12,4 @@ dependencies:
   - pip
   - pip:
       - AABY==0.1.5
-      - COBY==1.0.11
+      - COBY==1.0.15
